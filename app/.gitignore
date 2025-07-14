@@ -1,0 +1,8 @@
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Keep Room schema files
+!schemas/
