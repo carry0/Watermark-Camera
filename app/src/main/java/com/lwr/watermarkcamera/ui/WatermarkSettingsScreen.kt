@@ -29,6 +29,7 @@ fun WatermarkSettingsScreen(
     watermarkData: WatermarkData,
     onWatermarkDataChange: (WatermarkData) -> Unit,
     onStartCamera: () -> Unit,
+    onStartImageSelection: () -> Unit,
     onBackToFolderSelection: () -> Unit
 ) {
     Column(
@@ -40,7 +41,7 @@ fun WatermarkSettingsScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -377,26 +378,50 @@ fun WatermarkSettingsScreen(
         }
 
         // 底部按钮
-        Button(
-            onClick = {
-                if (watermarkData.title.isNotEmpty() && watermarkData.imageName.isNotEmpty()) {
-                    onStartCamera()
-                }
-            },
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
-            ),
-            enabled = watermarkData.title.isNotEmpty() && watermarkData.imageName.isNotEmpty()
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = "开始拍照",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
+            // 开始拍照按钮
+            Button(
+                onClick = {
+                    if (watermarkData.title.isNotEmpty() && watermarkData.imageName.isNotEmpty()) {
+                        onStartCamera()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                ),
+                enabled = watermarkData.title.isNotEmpty() && watermarkData.imageName.isNotEmpty()
+            ) {
+                Text(
+                    text = "开始拍照",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
+            
+            // 选择图片按钮
+            OutlinedButton(
+                onClick = {
+                    if (watermarkData.title.isNotEmpty() && watermarkData.imageName.isNotEmpty()) {
+                        onStartImageSelection()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = watermarkData.title.isNotEmpty() && watermarkData.imageName.isNotEmpty()
+            ) {
+                Text(
+                    text = "选择图片添加水印",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
         }
     }
 }

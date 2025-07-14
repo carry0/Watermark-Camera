@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -31,6 +32,8 @@ import com.lwr.watermarkcamera.data.WatermarkData
 import com.lwr.watermarkcamera.ui.CameraScreen
 import com.lwr.watermarkcamera.ui.FolderSelectionScreen
 import com.lwr.watermarkcamera.ui.WatermarkSettingsScreen
+import com.lwr.watermarkcamera.ui.ImageSelectionScreen
+import com.lwr.watermarkcamera.ui.ImagePreviewScreen
 import com.lwr.watermarkcamera.ui.theme.WatermarkCameraTheme
 import com.lwr.watermarkcamera.utils.*
 import kotlinx.coroutines.launch
@@ -68,6 +71,16 @@ class MainActivity : ComponentActivity() {
             // 权限已授予，可以继续操作
         } else {
             Toast.makeText(this, "需要所有权限才能正常使用应用", Toast.LENGTH_LONG).show()
+        }
+    }
+    
+    // 图片选择结果处理
+    private val imagePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { selectedUri ->
+            // 将选择的图片URI传递给Composable
+            // 这里需要通过状态管理来处理
         }
     }
     
@@ -196,6 +209,7 @@ fun WatermarkCameraApp(
     var watermarkData by remember { mutableStateOf(WatermarkData()) }
     var existingFolders by remember { mutableStateOf<List<File>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
+    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     
     // 获取文件夹列表
     val projectFolders = remember(searchQuery) {
@@ -296,7 +310,7 @@ fun WatermarkCameraApp(
                 }
             }
             // 其余内容
-            Box(modifier = Modifier.padding(innerPadding)) {
+            Box(modifier = Modifier.padding(vertical = 10.dp)) {
                 when (currentScreen) {
                     Screen.FolderSelection -> {
                         FolderSelectionScreen(
@@ -367,10 +381,114 @@ fun WatermarkCameraApp(
                                 }
                                 currentScreen = Screen.Camera
                             },
+                            onStartImageSelection = {
+                                currentScreen = Screen.ImageSelection
+                            },
                             onBackToFolderSelection = {
                                 currentScreen = Screen.FolderSelection
                             }
                         )
+                    }
+                    
+                    Screen.ImageSelection -> {
+                        selectedFolder?.let { folder ->
+                            ImageSelectionScreen(
+                                selectedFolder = folder,
+                                onImageSelected = { uri ->
+                                    selectedImageUri = uri
+                                    currentScreen = Screen.ImagePreview
+                                },
+                                onBackPressed = {
+                                    currentScreen = Screen.WatermarkSettings
+                                },
+                                onStartCamera = {
+                                    // 开始获取位置信息
+                                    locationService.startLocationUpdates { location ->
+                                        scope.launch {
+                                            val locationName = locationService.getAddressFromLocation(
+                                                location.latitude,
+                                                location.longitude
+                                            )
+                                            val weatherInfo = weatherService.getWeatherInfo(
+                                                location.latitude,
+                                                location.longitude
+                                            )
+                                            
+                                            watermarkData = watermarkData.copy(
+                                                latitude = location.latitude,
+                                                longitude = location.longitude,
+                                                locationName = locationName,
+                                                weather = weatherInfo.weather,
+                                                temperature = weatherInfo.temperature,
+                                                altitude = location.altitude.toString(),
+                                                direction = locationService.getDirection(location.bearing)
+                                            )
+                                        }
+                                    }
+                                    currentScreen = Screen.Camera
+                                }
+                            )
+                        }
+                    }
+                    
+                    Screen.ImagePreview -> {
+                        selectedImageUri?.let { uri ->
+                            ImagePreviewScreen(
+                                selectedImageUri = uri,
+                                watermarkData = watermarkData,
+                                onWatermarkDataChange = { newData ->
+                                    watermarkData = newData
+                                    // 保存设置
+                                    selectedFolder?.let { folder ->
+                                        saveWatermarkSettings(folder.name, newData)
+                                    }
+                                },
+                                onSaveImage = { bitmap, finalWatermarkData ->
+                                    scope.launch {
+                                        // 获取序列号
+                                        val sequenceNumber = selectedFolder?.let { folder ->
+                                            folderManager.getNextSequenceNumberFromFiles(folder.name)
+                                        } ?: 1
+                                        
+                                        // 生成文件名：使用标题-图片名称的格式
+                                        val fileName = folderManager.generateFileName(
+                                            sequenceNumber = sequenceNumber,
+                                            timestamp = finalWatermarkData.timestamp,
+                                            title = finalWatermarkData.title,
+                                            imageName = finalWatermarkData.imageName
+                                        )
+                                        
+                                        // 获取文件夹名称（从路径中提取）
+                                        val folderName = selectedFolder?.name ?: "default"
+                                        
+                                        // 更新水印数据
+                                        val updatedWatermarkData = finalWatermarkData.copy(
+                                            sequenceNumber = sequenceNumber,
+                                            customSequence = "SN-${deviceInfoUtil.formatDate(finalWatermarkData.timestamp)}-${String.format("%03d", sequenceNumber)}"
+                                        )
+                                        
+                                        // 添加水印并保存到Pictures目录（用户可见）
+                                        val success = watermarkGenerator.addWatermarkToSelectedImageAndSave(
+                                            context,
+                                            uri,
+                                            updatedWatermarkData,
+                                            fileName,
+                                            folderName
+                                        )
+                                        
+                                        if (success) {
+                                            Toast.makeText(context, "图片已保存到相册: $fileName", Toast.LENGTH_SHORT).show()
+                                            currentScreen = Screen.ImageSelection
+                                        } else {
+                                            Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                onBackPressed = {
+                                    currentScreen = Screen.ImageSelection
+                                }
+                            )
+                        }
                     }
                     
                     Screen.Camera -> {
@@ -462,5 +580,7 @@ data class WatermarkSettings(
 enum class Screen {
     FolderSelection,
     WatermarkSettings,
-    Camera
+    Camera,
+    ImageSelection,
+    ImagePreview
 }

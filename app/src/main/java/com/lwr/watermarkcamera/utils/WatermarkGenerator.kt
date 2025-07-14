@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.*
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
 import android.util.SizeF
@@ -14,6 +15,7 @@ import com.lwr.watermarkcamera.data.WatermarkPosition
 import com.lwr.watermarkcamera.data.WatermarkStyle
 import java.io.File
 import java.io.FileOutputStream
+import android.graphics.BitmapFactory
 
 class WatermarkGenerator {
     
@@ -461,6 +463,94 @@ class WatermarkGenerator {
                 drawable.draw(canvas)
                 bitmap
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+    
+    /**
+     * 为选择的图片添加水印并保存
+     */
+    fun addWatermarkToSelectedImageAndSave(
+        context: Context,
+        imageUri: Uri,
+        watermarkData: WatermarkData,
+        fileName: String,
+        folderName: String
+    ): Boolean {
+        return try {
+            // 从URI加载图片
+            val inputStream = context.contentResolver.openInputStream(imageUri)
+            val originalBitmap = BitmapFactory.decodeStream(inputStream)
+            inputStream?.close()
+            
+            if (originalBitmap == null) {
+                return false
+            }
+            
+            // 创建可编辑的位图副本
+            val editableBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
+            val canvas = Canvas(editableBitmap)
+            
+            // 添加水印
+            drawWatermarkToCanvas(
+                canvas = canvas,
+                watermarkData = watermarkData,
+                width = editableBitmap.width,
+                height = editableBitmap.height,
+                showBackground = watermarkData.watermarkStyle != WatermarkStyle.SIMPLE
+            )
+            
+            // 保存到Pictures目录
+            val success = saveBitmapToPictures(context, editableBitmap, fileName, folderName)
+            
+            // 清理资源
+            originalBitmap.recycle()
+            editableBitmap.recycle()
+            
+            success
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+    
+    /**
+     * 为选择的图片添加水印并返回Bitmap（用于预览）
+     */
+    fun addWatermarkToSelectedImage(
+        context: Context,
+        imageUri: Uri,
+        watermarkData: WatermarkData
+    ): Bitmap? {
+        return try {
+            // 从URI加载图片
+            val inputStream = context.contentResolver.openInputStream(imageUri)
+            val originalBitmap = BitmapFactory.decodeStream(inputStream)
+            inputStream?.close()
+            
+            if (originalBitmap == null) {
+                return null
+            }
+            
+            // 创建可编辑的位图副本
+            val editableBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
+            val canvas = Canvas(editableBitmap)
+            
+            // 添加水印
+            drawWatermarkToCanvas(
+                canvas = canvas,
+                watermarkData = watermarkData,
+                width = editableBitmap.width,
+                height = editableBitmap.height,
+                showBackground = watermarkData.watermarkStyle != WatermarkStyle.SIMPLE
+            )
+            
+            // 清理原始位图
+            originalBitmap.recycle()
+            
+            editableBitmap
         } catch (e: Exception) {
             e.printStackTrace()
             null

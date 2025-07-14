@@ -56,7 +56,7 @@ fun FolderSelectionScreen(
     var selectedFolderForPreview by remember { mutableStateOf<File?>(null) }
     var showPreviewDialog by remember { mutableStateOf(false) }
     var showPreview by remember { mutableStateOf(false) }
-    var selectedImageIndex by remember { mutableStateOf(0) }
+    var selectedImageIndex by remember { mutableIntStateOf(0) }
     var currentFolder by remember { mutableStateOf<File?>(null) }
     
     // 获取每个文件夹的照片信息
@@ -295,7 +295,7 @@ fun FolderSelectionScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
