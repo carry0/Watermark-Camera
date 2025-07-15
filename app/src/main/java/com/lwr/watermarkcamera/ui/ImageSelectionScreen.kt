@@ -228,6 +228,10 @@ fun ImageSelectionScreen(
                                 title = "实时预览",
                                 description = "在添加水印前可以预览效果，确保水印位置和样式正确"
                             )
+                            FeatureItem(
+                                title = "必填信息",
+                                description = "标题、图片名称、经纬度、地点名称为必填项，确保信息完整"
+                            )
                         }
                     }
                 }

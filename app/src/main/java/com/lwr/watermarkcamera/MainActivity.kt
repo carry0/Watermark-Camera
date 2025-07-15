@@ -11,6 +11,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.OnBackPressedDispatcher
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -211,6 +214,33 @@ fun WatermarkCameraApp(
     var searchQuery by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     
+    // 系统返回键处理
+    fun handleBackPress() {
+        when (currentScreen) {
+            Screen.FolderSelection -> {
+                // 在文件夹选择页面，退出应用
+                android.os.Process.killProcess(android.os.Process.myPid())
+            }
+            Screen.WatermarkSettings -> {
+                currentScreen = Screen.FolderSelection
+            }
+            Screen.Camera -> {
+                currentScreen = Screen.WatermarkSettings
+            }
+            Screen.ImageSelection -> {
+                currentScreen = Screen.WatermarkSettings
+            }
+            Screen.ImagePreview -> {
+                currentScreen = Screen.ImageSelection
+            }
+        }
+    }
+    
+    // 注册系统返回键回调
+    BackHandler {
+        handleBackPress()
+    }
+    
     // 获取文件夹列表
     val projectFolders = remember(searchQuery) {
         if (searchQuery.isEmpty()) {
@@ -385,7 +415,7 @@ fun WatermarkCameraApp(
                                 currentScreen = Screen.ImageSelection
                             },
                             onBackToFolderSelection = {
-                                currentScreen = Screen.FolderSelection
+                                handleBackPress()
                             }
                         )
                     }
@@ -399,7 +429,7 @@ fun WatermarkCameraApp(
                                     currentScreen = Screen.ImagePreview
                                 },
                                 onBackPressed = {
-                                    currentScreen = Screen.WatermarkSettings
+                                    handleBackPress()
                                 },
                                 onStartCamera = {
                                     // 开始获取位置信息
@@ -485,8 +515,10 @@ fun WatermarkCameraApp(
                                     }
                                 },
                                 onBackPressed = {
-                                    currentScreen = Screen.ImageSelection
-                                }
+                                    handleBackPress()
+                                },
+                                locationService = locationService,
+                                weatherService = weatherService
                             )
                         }
                     }
@@ -544,7 +576,7 @@ fun WatermarkCameraApp(
                                 }
                             },
                             onBackPressed = {
-                                currentScreen = Screen.FolderSelection
+                                handleBackPress()
                             },
                             onWatermarkDataChange = { newData ->
                                 watermarkData = newData
@@ -555,7 +587,7 @@ fun WatermarkCameraApp(
                             },
                             onBackToSettings = {
                                 // 返回到设置页面，但保持其他设置不变
-                                currentScreen = Screen.WatermarkSettings
+                                handleBackPress()
                             },
                             locationService = locationService,
                             weatherService = weatherService
