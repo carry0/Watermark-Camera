@@ -289,6 +289,9 @@ fun WatermarkCameraApp(
             watermarkStyle = data.watermarkStyle,
             watermarkPosition = data.watermarkPosition,
             timeFormat = data.timeFormat,
+            showImageName = data.showImageName,
+            showTime = data.showTime,
+            showLocation = data.showLocation,
             showWeatherInfo = data.showWeatherInfo
         )
         sharedPreferences.edit { putString(folderName, gson.toJson(settings)) }
@@ -305,6 +308,9 @@ fun WatermarkCameraApp(
                 watermarkStyle = settings.watermarkStyle,
                 watermarkPosition = settings.watermarkPosition,
                 timeFormat = settings.timeFormat,
+                showImageName = settings.showImageName,
+                showTime = settings.showTime,
+                showLocation = settings.showLocation,
                 showWeatherInfo = settings.showWeatherInfo
             )
         } else {
@@ -488,7 +494,8 @@ fun WatermarkCameraApp(
                                             sequenceNumber = sequenceNumber,
                                             timestamp = finalWatermarkData.timestamp,
                                             title = finalWatermarkData.title,
-                                            imageName = finalWatermarkData.imageName
+                                            imageName = finalWatermarkData.imageName,
+                                            showImageName = finalWatermarkData.showImageName
                                         )
                                         
                                         // 获取文件夹名称（从路径中提取）
@@ -531,9 +538,14 @@ fun WatermarkCameraApp(
                             watermarkData = watermarkData,
                             onPhotoTaken = { bitmap, tempFile, rotationDegrees ->
                                 scope.launch {
-                                    // 验证标题和图片名称是否都已填写
-                                    if (watermarkData.title.isEmpty() || watermarkData.imageName.isEmpty()) {
-                                        Toast.makeText(context, "请先填写标题和图片名称", Toast.LENGTH_SHORT).show()
+                                    // 验证标题是否已填写，图片名称根据设置决定是否必填
+                                    if (watermarkData.title.isEmpty()) {
+                                        Toast.makeText(context, "请先填写标题", Toast.LENGTH_SHORT).show()
+                                        return@launch
+                                    }
+                                    
+                                    if (watermarkData.showImageName && watermarkData.imageName.isEmpty()) {
+                                        Toast.makeText(context, "请先填写图片名称", Toast.LENGTH_SHORT).show()
                                         return@launch
                                     }
                                     
@@ -547,7 +559,8 @@ fun WatermarkCameraApp(
                                         sequenceNumber = sequenceNumber,
                                         timestamp = watermarkData.timestamp,
                                         title = watermarkData.title,
-                                        imageName = watermarkData.imageName
+                                        imageName = watermarkData.imageName,
+                                        showImageName = watermarkData.showImageName
                                     )
                                     
                                     // 获取文件夹名称（从路径中提取）
@@ -610,7 +623,10 @@ data class WatermarkSettings(
     val watermarkStyle: WatermarkStyle = WatermarkStyle.SIMPLE,
     val watermarkPosition: WatermarkPosition = WatermarkPosition.BOTTOM_RIGHT,
     val timeFormat: TimeFormat = TimeFormat.DATE_ONLY,
-    val showWeatherInfo: Boolean = false
+    val showImageName: Boolean = true,
+    val showTime: Boolean = true,
+    val showLocation: Boolean = true,
+    val showWeatherInfo: Boolean = true
 )
 
 enum class Screen {

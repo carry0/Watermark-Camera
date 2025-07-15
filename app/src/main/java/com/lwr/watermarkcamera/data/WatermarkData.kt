@@ -45,6 +45,9 @@ data class WatermarkData(
 
     // 水印显示配置
     val showTitle: Boolean = true, // 显示标题
+    val showImageName: Boolean = true, // 显示图片名称（影响保存文件名格式）
+    val showTime: Boolean = true, // 显示时间
+    val showLocation: Boolean = true, // 显示地点信息
     val showProjectInfo: Boolean = true, // 显示项目信息
     val showWeatherInfo: Boolean = true, // 显示天气信息
     val showDeviceInfo: Boolean = true, // 显示设备信息
@@ -56,5 +59,5 @@ data class WatermarkData(
     val watermarkPosition: WatermarkPosition = WatermarkPosition.BOTTOM_RIGHT,  // 默认右下角
     val timeFormat: TimeFormat = TimeFormat.DATE_ONLY,
     val watermarkStyle: WatermarkStyle = WatermarkStyle.SIMPLE
-    // 注意：时间、位置、地址、序列号是必须显示的，不能关闭
+    // 注意：序列号是必须显示的，不能关闭
 ) : Serializable 

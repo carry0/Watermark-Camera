@@ -553,13 +553,18 @@ fun WatermarkPreview(
         if (watermarkData.title.isNotEmpty()) {
             contentList.add(watermarkData.title)
         }
-        contentList.add("时间: ${formatTimestamp(watermarkData.timestamp, watermarkData.timeFormat)}")
-        if (watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
+        
+        if (watermarkData.showTime) {
+            contentList.add("时间: ${formatTimestamp(watermarkData.timestamp, watermarkData.timeFormat)}")
+        }
+        
+        if (watermarkData.showLocation && watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
             contentList.add("经纬度: ${String.format("%.6f°N,%.6f°E", watermarkData.latitude, watermarkData.longitude)}")
             if (watermarkData.locationName.isNotEmpty()) {
                 contentList.add("地点: ${watermarkData.locationName}")
             }
         }
+        
         if (watermarkData.showWeatherInfo) {
             val weatherInfo = buildString {
                 append("天气: ")

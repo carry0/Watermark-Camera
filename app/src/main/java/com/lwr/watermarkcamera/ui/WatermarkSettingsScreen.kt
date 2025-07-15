@@ -125,44 +125,88 @@ fun WatermarkSettingsScreen(
                     Column(
                         modifier = Modifier.padding(16.dp)
                     ) {
-                        Text(
-                            text = "请输入图片名称（必填）",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
-
-                        OutlinedTextField(
-                            value = watermarkData.imageName,
-                            onValueChange = { onWatermarkDataChange(watermarkData.copy(imageName = it)) },
-                            label = { Text("图片名称") },
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("例如：A001、检查点1、会议室") },
-                            isError = watermarkData.imageName.isEmpty(),
-                            supportingText = {
-                                if (watermarkData.imageName.isEmpty()) {
-                                    Text("请输入图片名称", color = MaterialTheme.colorScheme.error)
-                                } else {
-                                    Text("保存格式：(标题+图片名称)", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            },
-                            trailingIcon = {
-                                if (watermarkData.imageName.isNotEmpty()) {
-                                    IconButton(
-                                        onClick = { onWatermarkDataChange(watermarkData.copy(imageName = "")) }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "清空图片名称",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "图片名称设置",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            
+                            Switch(
+                                checked = watermarkData.showImageName,
+                                onCheckedChange = { onWatermarkDataChange(watermarkData.copy(showImageName = it)) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        if (watermarkData.showImageName) {
+                            OutlinedTextField(
+                                value = watermarkData.imageName,
+                                onValueChange = { onWatermarkDataChange(watermarkData.copy(imageName = it)) },
+                                label = { Text("图片名称") },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("例如：A001、检查点1、会议室") },
+                                isError = watermarkData.imageName.isEmpty(),
+                                supportingText = {
+                                    if (watermarkData.imageName.isEmpty()) {
+                                        Text("请输入图片名称", color = MaterialTheme.colorScheme.error)
+                                    } else {
+                                        Text("保存格式：标题-图片名称-序号", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                trailingIcon = {
+                                    if (watermarkData.imageName.isNotEmpty()) {
+                                        IconButton(
+                                            onClick = { onWatermarkDataChange(watermarkData.copy(imageName = "")) }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "清空图片名称",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
+                            )
+                        } else {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp)
+                                ) {
+                                    Text(
+                                        text = "图片名称已禁用",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "保存格式：标题-序号",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
-                        )
+                        }
                         
                         // 预览保存的完整名称
-                        if (watermarkData.title.isNotEmpty() && watermarkData.imageName.isNotEmpty()) {
+                        if (watermarkData.title.isNotEmpty() && (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -181,7 +225,11 @@ fun WatermarkSettingsScreen(
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "${watermarkData.title}-${watermarkData.imageName}.jpg",
+                                        text = if (watermarkData.showImageName && watermarkData.imageName.isNotEmpty()) {
+                                            "${watermarkData.title}-${watermarkData.imageName}-1.jpg"
+                                        } else {
+                                            "${watermarkData.title}-1.jpg"
+                                        },
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
@@ -325,6 +373,52 @@ fun WatermarkSettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
+                                text = "显示时间",
+                                fontSize = 16.sp
+                            )
+                            Switch(
+                                checked = watermarkData.showTime,
+                                onCheckedChange = { onWatermarkDataChange(watermarkData.copy(showTime = it)) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "显示地点",
+                                fontSize = 16.sp
+                            )
+                            Switch(
+                                checked = watermarkData.showLocation,
+                                onCheckedChange = { onWatermarkDataChange(watermarkData.copy(showLocation = it)) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
                                 text = "显示天气",
                                 fontSize = 16.sp
                             )
@@ -357,7 +451,7 @@ fun WatermarkSettingsScreen(
                         )
 
                         Text(
-                            text = "照片将自动添加以下水印信息：",
+                            text = "照片将根据设置添加以下水印信息：",
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 8.dp)
@@ -365,9 +459,11 @@ fun WatermarkSettingsScreen(
 
                         Text(
                             text = "• 标题（必填）\n" +
-                                  "• 拍摄时间\n" +
-                                  "• 地理位置和经纬度\n" +
-                                  "• 保存格式：(标题+图片名称)，如：水印-A001",
+                                  "• 拍摄时间（可选）\n" +
+                                  "• 地理位置和经纬度（可选）\n" +
+                                  "• 天气信息（可选）\n" +
+                                  "• 图片名称（可选）\n" +
+                                  "• 保存格式：启用图片名称时为 标题-图片名称-序号，禁用时为 标题-序号",
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 20.sp
@@ -387,7 +483,8 @@ fun WatermarkSettingsScreen(
             // 开始拍照按钮
             Button(
                 onClick = {
-                    if (watermarkData.title.isNotEmpty() && watermarkData.imageName.isNotEmpty()) {
+                    if (watermarkData.title.isNotEmpty() && 
+                        (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())) {
                         onStartCamera()
                     }
                 },
@@ -395,7 +492,8 @@ fun WatermarkSettingsScreen(
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary
                 ),
-                enabled = watermarkData.title.isNotEmpty() && watermarkData.imageName.isNotEmpty()
+                enabled = watermarkData.title.isNotEmpty() && 
+                         (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())
             ) {
                 Text(
                     text = "开始拍照",
@@ -408,12 +506,14 @@ fun WatermarkSettingsScreen(
             // 选择图片按钮
             OutlinedButton(
                 onClick = {
-                    if (watermarkData.title.isNotEmpty() && watermarkData.imageName.isNotEmpty()) {
+                    if (watermarkData.title.isNotEmpty() && 
+                        (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())) {
                         onStartImageSelection()
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = watermarkData.title.isNotEmpty() && watermarkData.imageName.isNotEmpty()
+                enabled = watermarkData.title.isNotEmpty() && 
+                         (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())
             ) {
                 Text(
                     text = "选择图片添加水印",

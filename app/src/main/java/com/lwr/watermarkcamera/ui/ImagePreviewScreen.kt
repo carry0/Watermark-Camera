@@ -384,9 +384,9 @@ fun ImagePreviewScreen(
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "• 标题：用户自定义标题\n" +
-                                      "• 图片名称：图片标识名称\n" +
                                       "• 经纬度：GPS坐标位置\n" +
-                                      "• 地点名称：位置描述信息",
+                                      "• 地点名称：位置描述信息\n" +
+                                      "• 图片名称：可选，影响文件保存格式",
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 lineHeight = 20.sp
@@ -420,27 +420,55 @@ fun ImagePreviewScreen(
                     )
                     
                     // 图片名称设置
-                    OutlinedTextField(
-                        value = watermarkData.imageName,
-                        onValueChange = { 
-                            onWatermarkDataChange(watermarkData.copy(imageName = it))
-                        },
-                        label = { Text("图片名称", fontSize = 14.sp) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp),
-                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 16.sp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                        ),
-                        isError = watermarkData.imageName.isEmpty(),
-                        supportingText = {
-                            if (watermarkData.imageName.isEmpty()) {
-                                Text("请输入图片名称", color = MaterialTheme.colorScheme.error)
+                    if (watermarkData.showImageName) {
+                        OutlinedTextField(
+                            value = watermarkData.imageName,
+                            onValueChange = { 
+                                onWatermarkDataChange(watermarkData.copy(imageName = it))
+                            },
+                            label = { Text("图片名称", fontSize = 14.sp) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 16.dp),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 16.sp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                            ),
+                            isError = watermarkData.imageName.isEmpty(),
+                            supportingText = {
+                                if (watermarkData.imageName.isEmpty()) {
+                                    Text("请输入图片名称", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        )
+                    } else {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                Text(
+                                    text = "图片名称已禁用",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "保存格式：标题-序号",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
-                    )
+                    }
                     
                     // 手动输入经纬度
                     Row(
@@ -612,7 +640,7 @@ fun ImagePreviewScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     // 预览文件名
-                    if (watermarkData.title.isNotEmpty() && watermarkData.imageName.isNotEmpty()) {
+                    if (watermarkData.title.isNotEmpty() && (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())) {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(
@@ -631,7 +659,11 @@ fun ImagePreviewScreen(
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "${watermarkData.title}-${watermarkData.imageName}.jpg",
+                                    text = if (watermarkData.showImageName && watermarkData.imageName.isNotEmpty()) {
+                                        "${watermarkData.title}-${watermarkData.imageName}-1.jpg"
+                                    } else {
+                                        "${watermarkData.title}-1.jpg"
+                                    },
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
@@ -687,7 +719,7 @@ fun ImagePreviewScreen(
                             enabled = watermarkedBitmap != null && 
                                      !isProcessing && 
                                      watermarkData.title.isNotEmpty() && 
-                                     watermarkData.imageName.isNotEmpty() && 
+                                     (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty()) && 
                                      watermarkData.latitude != 0.0 && 
                                      watermarkData.longitude != 0.0 && 
                                      watermarkData.locationName.isNotEmpty(),
@@ -727,7 +759,7 @@ fun ImagePreviewScreen(
                                 .padding(top = 12.dp)
                         )
                     } else if (watermarkData.title.isEmpty() || 
-                               watermarkData.imageName.isEmpty() || 
+                               (watermarkData.showImageName && watermarkData.imageName.isEmpty()) || 
                                watermarkData.latitude == 0.0 || 
                                watermarkData.longitude == 0.0 || 
                                watermarkData.locationName.isEmpty()) {

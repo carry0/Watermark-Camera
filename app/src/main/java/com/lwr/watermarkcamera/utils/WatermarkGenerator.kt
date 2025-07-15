@@ -184,14 +184,16 @@ class WatermarkGenerator {
                 totalHeight += titlePaint.textSize + lineSpacingPx
             }
 
-            // 时间
-            val timeText = "时间: ${formatTimestamp(watermarkData.timestamp, watermarkData.timeFormat)}"
-            val timeWidth = textPaint.measureText(timeText)
-            maxWidth = maxOf(maxWidth, timeWidth)
-            totalHeight += textPaint.textSize + lineSpacingPx
+            // 时间（根据显示设置）
+            if (watermarkData.showTime) {
+                val timeText = "时间: ${formatTimestamp(watermarkData.timestamp, watermarkData.timeFormat)}"
+                val timeWidth = textPaint.measureText(timeText)
+                maxWidth = maxOf(maxWidth, timeWidth)
+                totalHeight += textPaint.textSize + lineSpacingPx
+            }
 
-            // 位置信息
-            if (watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
+            // 位置信息（根据显示设置）
+            if (watermarkData.showLocation && watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
                 val locationText = "经纬度: ${String.format("%.6f°N,%.6f°E", watermarkData.latitude, watermarkData.longitude)}"
                 val locationWidth = textPaint.measureText(locationText)
                 maxWidth = maxOf(maxWidth, locationWidth)
@@ -205,7 +207,7 @@ class WatermarkGenerator {
                 }
             }
 
-            // 天气信息
+            // 天气信息（根据显示设置）
             if (watermarkData.showWeatherInfo) {
                 val weatherInfo = buildString {
                     append("天气: ")
@@ -394,20 +396,22 @@ class WatermarkGenerator {
                 currentY += titlePaint.textSize + lineSpacingPx
             }
             
-            // 绘制时间
-            val timeText = "时间: ${formatTimestamp(watermarkData.timestamp, watermarkData.timeFormat)}"
-            if (watermarkData.watermarkStyle == WatermarkStyle.BORDERED) {
-                val fillPaint = Paint(textPaint).apply {
-                    style = Paint.Style.FILL
-                    color = Color.WHITE
+            // 绘制时间（根据显示设置）
+            if (watermarkData.showTime) {
+                val timeText = "时间: ${formatTimestamp(watermarkData.timestamp, watermarkData.timeFormat)}"
+                if (watermarkData.watermarkStyle == WatermarkStyle.BORDERED) {
+                    val fillPaint = Paint(textPaint).apply {
+                        style = Paint.Style.FILL
+                        color = Color.WHITE
+                    }
+                    canvas.drawText(timeText, adjustedStartX + paddingPx, currentY, fillPaint)
                 }
-                canvas.drawText(timeText, adjustedStartX + paddingPx, currentY, fillPaint)
+                canvas.drawText(timeText, adjustedStartX + paddingPx, currentY, textPaint)
+                currentY += textPaint.textSize + lineSpacingPx
             }
-            canvas.drawText(timeText, adjustedStartX + paddingPx, currentY, textPaint)
-            currentY += textPaint.textSize + lineSpacingPx
             
-            // 绘制位置信息
-            if (watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
+            // 绘制位置信息（根据显示设置）
+            if (watermarkData.showLocation && watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
                 val locationText = "经纬度: ${String.format("%.6f°N,%.6f°E", watermarkData.latitude, watermarkData.longitude)}"
                 if (watermarkData.watermarkStyle == WatermarkStyle.BORDERED) {
                     val fillPaint = Paint(textPaint).apply {
@@ -433,7 +437,7 @@ class WatermarkGenerator {
                 }
             }
             
-            // 绘制天气信息
+            // 绘制天气信息（根据显示设置）
             if (watermarkData.showWeatherInfo) {
                 val weatherInfo = buildString {
                     append("天气: ")

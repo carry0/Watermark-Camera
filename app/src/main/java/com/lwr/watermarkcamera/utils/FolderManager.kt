@@ -79,10 +79,20 @@ class FolderManager(private val context: Context) {
     /**
      * 生成文件名
      */
-    fun generateFileName(sequenceNumber: Int, timestamp: Long, title: String = "", imageName: String = ""): String {
-        // 标题和图片名称都是必填的，所以直接组合
-        val baseName = "${title}-${imageName}"
-        return "${baseName}.jpg"
+    fun generateFileName(
+        sequenceNumber: Int, 
+        timestamp: Long, 
+        title: String = "", 
+        imageName: String = "",
+        showImageName: Boolean = true
+    ): String {
+        return if (showImageName && imageName.isNotEmpty()) {
+            // 启用图片名称且图片名称不为空：标题-图片名称-序号
+            "${title}-${imageName}-${sequenceNumber}.jpg"
+        } else {
+            // 禁用图片名称或图片名称为空：标题-序号
+            "${title}-${sequenceNumber}.jpg"
+        }
     }
     
     /**
