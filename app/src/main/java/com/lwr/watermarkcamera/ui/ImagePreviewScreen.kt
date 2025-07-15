@@ -98,7 +98,9 @@ fun ImagePreviewScreen(
                         watermarkData = watermarkData,
                         width = bitmap.width,
                         height = bitmap.height,
-                        showBackground = watermarkData.watermarkStyle != com.lwr.watermarkcamera.data.WatermarkStyle.SIMPLE
+                        showBackground = watermarkData.watermarkStyle != com.lwr.watermarkcamera.data.WatermarkStyle.SIMPLE,
+                        rotationDegrees = 0f,  // 预览时不需要旋转
+                        adjustedPosition = watermarkData.watermarkPosition  // 预览时使用原始位置
                     )
                     newBitmap
                 }

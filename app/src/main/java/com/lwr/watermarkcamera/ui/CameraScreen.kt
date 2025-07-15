@@ -70,7 +70,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun CameraScreen(
     watermarkData: WatermarkData,
-    onPhotoTaken: (Bitmap, File) -> Unit,
+    onPhotoTaken: (Bitmap, File, Float) -> Unit,  // 添加旋转角度参数
     onBackPressed: () -> Unit,
     onWatermarkDataChange: (WatermarkData) -> Unit,
     onBackToSettings: () -> Unit,
@@ -116,7 +116,14 @@ fun CameraScreen(
 
     // 处理拍照结果
     val handlePhotoTaken = { bitmap: Bitmap, file: File ->
-        onPhotoTaken(bitmap, file)
+        val rotationDegrees = when(rotation) {
+            Surface.ROTATION_0 -> 0f
+            Surface.ROTATION_90 -> 90f
+            Surface.ROTATION_180 -> 180f
+            Surface.ROTATION_270 -> 270f
+            else -> 0f
+        }
+        onPhotoTaken(bitmap, file, rotationDegrees)
         // 返回到设置页面重新输入标题
         onBackToSettings()
     }
@@ -162,9 +169,34 @@ fun CameraScreen(
             Surface.ROTATION_270 -> 270f
             else -> 0f
         }
+        
+        // 根据旋转角度调整水印位置
+        val adjustedPosition = when (rotation) {
+            Surface.ROTATION_0 -> watermarkData.watermarkPosition
+            Surface.ROTATION_90 -> when (watermarkData.watermarkPosition) {
+                WatermarkPosition.TOP_LEFT -> WatermarkPosition.TOP_RIGHT
+                WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_RIGHT
+                WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.BOTTOM_LEFT
+                WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_LEFT
+            }
+            Surface.ROTATION_180 -> when (watermarkData.watermarkPosition) {
+                WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_RIGHT
+                WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_LEFT
+                WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_LEFT
+                WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_RIGHT
+            }
+            Surface.ROTATION_270 -> when (watermarkData.watermarkPosition) {
+                WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_LEFT
+                WatermarkPosition.TOP_RIGHT -> WatermarkPosition.TOP_LEFT
+                WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_RIGHT
+                WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.BOTTOM_RIGHT
+            }
+            else -> watermarkData.watermarkPosition
+        }
+        
         Box(
             modifier = Modifier.fillMaxSize(),
-            contentAlignment = when (watermarkData.watermarkPosition) {
+            contentAlignment = when (adjustedPosition) {
                 WatermarkPosition.TOP_LEFT -> Alignment.TopStart
                 WatermarkPosition.TOP_RIGHT -> Alignment.TopEnd
                 WatermarkPosition.BOTTOM_LEFT -> Alignment.BottomStart
@@ -174,17 +206,23 @@ fun CameraScreen(
             WatermarkPreview(
                 watermarkData = watermarkData,
                 modifier = Modifier
-                    .fillMaxWidth(0.7f)
+                    .fillMaxWidth(0.6f)  // 减少宽度比例，避免超出屏幕
                     .padding(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = when (watermarkData.watermarkPosition) {
-                            WatermarkPosition.TOP_LEFT, WatermarkPosition.TOP_RIGHT -> 16.dp
-                            else -> 16.dp
+                        start = when (adjustedPosition) {
+                            WatermarkPosition.TOP_LEFT, WatermarkPosition.BOTTOM_LEFT -> 16.dp
+                            else -> 8.dp
                         },
-                        bottom = when (watermarkData.watermarkPosition) {
-                            WatermarkPosition.BOTTOM_LEFT, WatermarkPosition.BOTTOM_RIGHT -> 120.dp
-                            else -> 16.dp
+                        end = when (adjustedPosition) {
+                            WatermarkPosition.TOP_RIGHT, WatermarkPosition.BOTTOM_RIGHT -> 16.dp
+                            else -> 8.dp
+                        },
+                        top = when (adjustedPosition) {
+                            WatermarkPosition.TOP_LEFT, WatermarkPosition.TOP_RIGHT -> 80.dp  // 避免被顶部工具栏遮挡
+                            else -> 8.dp
+                        },
+                        bottom = when (adjustedPosition) {
+                            WatermarkPosition.BOTTOM_LEFT, WatermarkPosition.BOTTOM_RIGHT -> 140.dp  // 避免被底部按钮遮挡
+                            else -> 8.dp
                         }
                     )
                     .graphicsLayer { rotationZ = rotationDegrees }
@@ -280,7 +318,8 @@ fun CameraScreen(
                     takePhoto(
                         imageCapture = imageCapture,
                         outputDirectory = getOutputDirectory(context),
-                        executor = cameraExecutor
+                        executor = cameraExecutor,
+                        rotationDegrees = rotationDegrees
                     ) { bitmap, file ->
                         previewBitmap = bitmap
                         previewFile = file
@@ -427,17 +466,28 @@ private fun startCamera(
     }, ContextCompat.getMainExecutor(context))
 }
 
-private fun rotateBitmapIfRequired(file: File, bitmap: Bitmap): Bitmap {
+private fun rotateBitmapIfRequired(file: File, bitmap: Bitmap, rotationDegrees: Float): Bitmap {
     val exif = ExifInterface(file.absolutePath)
     val orientation =
         exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-    val matrix = Matrix()
-    when (orientation) {
-        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
-        else -> return bitmap
+    
+    // 只使用EXIF方向进行旋转，不叠加屏幕旋转
+    // 屏幕旋转只影响水印位置，不影响最终图片方向
+    val exifRotation = when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+        ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+        ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+        else -> 0f
     }
+    
+    // 如果不需要旋转，直接返回原图
+    if (exifRotation == 0f) {
+        return bitmap
+    }
+    
+    val matrix = Matrix()
+    matrix.postRotate(exifRotation)
+    
     return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
 }
 
@@ -445,6 +495,7 @@ private fun takePhoto(
     imageCapture: ImageCapture?,
     outputDirectory: File,
     executor: ExecutorService,
+    rotationDegrees: Float,
     onPhotoTaken: (Bitmap, File) -> Unit
 ) {
     imageCapture?.let { capture ->
@@ -460,7 +511,7 @@ private fun takePhoto(
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                     val bitmap = android.graphics.BitmapFactory.decodeFile(photoFile.absolutePath)
                     val rotatedBitmap =
-                        if (bitmap != null) rotateBitmapIfRequired(photoFile, bitmap) else null
+                        if (bitmap != null) rotateBitmapIfRequired(photoFile, bitmap, rotationDegrees) else null
                     if (rotatedBitmap != null) {
                         onPhotoTaken(rotatedBitmap, photoFile)
                     }
@@ -487,12 +538,13 @@ fun WatermarkPreview(
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
-    val paddingDp = 10.dp
-    val lineSpacingDp = 4.dp
-    val textSizeDp = 19.dp
+    val paddingDp = 8.dp  // 减少内边距
+    val lineSpacingDp = 3.dp  // 减少行间距
+    val textSizeDp = 16.dp  // 减少文字大小
 
     BoxWithConstraints(modifier = modifier) {
         val maxWidthPx = with(density) { maxWidth.toPx() }
+        val maxHeightPx = with(density) { maxHeight.toPx() }
         val paddingPx = with(density) { paddingDp.toPx() }
         val lineSpacingPx = with(density) { lineSpacingDp.toPx() }
         val textSizePx = with(density) { textSizeDp.toPx() }
@@ -531,10 +583,10 @@ fun WatermarkPreview(
             
             when (watermarkData.watermarkStyle) {
                 WatermarkStyle.SIMPLE -> {
-                    setShadowLayer(5f, 2f, 2f, android.graphics.Color.BLACK)
+                    setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)  // 减少阴影效果
                 }
                 WatermarkStyle.BORDERED -> {
-                    strokeWidth = 2f
+                    strokeWidth = 1.5f  // 减少描边宽度
                     style = android.graphics.Paint.Style.STROKE
                     color = android.graphics.Color.BLACK
                 }
@@ -546,8 +598,9 @@ fun WatermarkPreview(
 
         var totalHeight = 0f
         val layoutList = contentList.map { text ->
+            val availableWidth = (maxWidthPx - 2 * paddingPx).toInt()
             val staticLayout = android.text.StaticLayout.Builder
-                .obtain(text, 0, text.length, paint, (maxWidthPx - 2 * paddingPx).toInt())
+                .obtain(text, 0, text.length, paint, availableWidth)
                 .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
                 .setLineSpacing(0f, 1f)
                 .setIncludePad(false)
@@ -557,17 +610,20 @@ fun WatermarkPreview(
         }
         totalHeight += 2 * paddingPx
 
+        // 确保水印高度不超过可用高度
+        val finalHeight = minOf(totalHeight, maxHeightPx)
+
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(with(density) { totalHeight.toDp() })
+                .height(with(density) { finalHeight.toDp() })
         ) {
             // 绘制背景
             when (watermarkData.watermarkStyle) {
                 WatermarkStyle.CARD -> {
                     drawRoundRect(
                         color = Color.Black.copy(alpha = 0.5f),
-                        cornerRadius = CornerRadius(16f, 16f),
+                        cornerRadius = CornerRadius(12f, 12f),  // 减少圆角半径
                         size = size
                     )
                 }
@@ -587,31 +643,34 @@ fun WatermarkPreview(
 
             var currentY = paddingPx
             layoutList.forEach { layout ->
-                drawIntoCanvas { canvas ->
-                    canvas.nativeCanvas.save()
-                    canvas.nativeCanvas.translate(paddingPx, currentY)
-                    
-                    // 如果是描边样式，需要额外绘制一层填充文字
-                    if (watermarkData.watermarkStyle == WatermarkStyle.BORDERED) {
-                        val fillPaint = android.text.TextPaint().apply {
-                            color = android.graphics.Color.WHITE
-                            isAntiAlias = true
-                            textSize = textSizePx
-                            style = android.graphics.Paint.Style.FILL
+                // 检查是否还有足够空间绘制
+                if (currentY + layout.height <= finalHeight - paddingPx) {
+                    drawIntoCanvas { canvas ->
+                        canvas.nativeCanvas.save()
+                        canvas.nativeCanvas.translate(paddingPx, currentY)
+                        
+                        // 如果是描边样式，需要额外绘制一层填充文字
+                        if (watermarkData.watermarkStyle == WatermarkStyle.BORDERED) {
+                            val fillPaint = android.text.TextPaint().apply {
+                                color = android.graphics.Color.WHITE
+                                isAntiAlias = true
+                                textSize = textSizePx
+                                style = android.graphics.Paint.Style.FILL
+                            }
+                            val fillLayout = android.text.StaticLayout.Builder
+                                .obtain(layout.text, 0, layout.text.length, fillPaint, layout.width)
+                                .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
+                                .setLineSpacing(0f, 1f)
+                                .setIncludePad(false)
+                                .build()
+                            fillLayout.draw(canvas.nativeCanvas)
                         }
-                        val fillLayout = android.text.StaticLayout.Builder
-                            .obtain(layout.text, 0, layout.text.length, fillPaint, layout.width)
-                            .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
-                            .setLineSpacing(0f, 1f)
-                            .setIncludePad(false)
-                            .build()
-                        fillLayout.draw(canvas.nativeCanvas)
+                        
+                        layout.draw(canvas.nativeCanvas)
+                        canvas.nativeCanvas.restore()
                     }
-                    
-                    layout.draw(canvas.nativeCanvas)
-                    canvas.nativeCanvas.restore()
+                    currentY += layout.height + lineSpacingPx
                 }
-                currentY += layout.height + lineSpacingPx
             }
         }
     }

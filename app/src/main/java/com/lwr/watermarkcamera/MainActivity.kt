@@ -106,6 +106,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         
+        // 禁止屏幕旋转，强制竖屏模式
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        
         // 初始化工具类
         folderManager = FolderManager(this)
         locationService = LocationService(this)
@@ -526,7 +529,7 @@ fun WatermarkCameraApp(
                     Screen.Camera -> {
                         CameraScreen(
                             watermarkData = watermarkData,
-                            onPhotoTaken = { bitmap, tempFile ->
+                            onPhotoTaken = { bitmap, tempFile, rotationDegrees ->
                                 scope.launch {
                                     // 验证标题和图片名称是否都已填写
                                     if (watermarkData.title.isEmpty() || watermarkData.imageName.isEmpty()) {
@@ -556,13 +559,14 @@ fun WatermarkCameraApp(
                                         customSequence = "SN-${deviceInfoUtil.formatDate(watermarkData.timestamp)}-${String.format("%03d", sequenceNumber)}"
                                     )
                                     
-                                    // 添加水印并保存到Pictures目录（用户可见）
+                                    // 添加水印并保存到Pictures目录（用户可见），传递旋转角度
                                     val success = watermarkGenerator.addWatermarkToPhotoAndSaveToPictures(
                                         context,
                                         bitmap,
                                         finalWatermarkData,
                                         fileName,
-                                        folderName
+                                        folderName,
+                                        rotationDegrees
                                     )
                                     
                                     if (success) {

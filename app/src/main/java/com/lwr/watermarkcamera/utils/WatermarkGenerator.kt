@@ -21,7 +21,7 @@ class WatermarkGenerator {
     
     companion object {
         // 调整水印参数，使用图片尺寸的比例来计算
-        private const val WATERMARK_PADDING_RATIO = 0.02f // 边距为图片宽度的2%
+        private const val WATERMARK_PADDING_RATIO = 0.03f // 边距为图片宽度的3%（增加边距）
         private const val TEXT_SIZE_RATIO = 0.03f // 文字大小为图片宽度的3%
         private const val TITLE_SIZE_RATIO = 0.035f // 标题大小为图片宽度的3.5%
         private const val LINE_SPACING_RATIO = 0.02f // 行间距为图片宽度的2%
@@ -36,13 +36,29 @@ class WatermarkGenerator {
             watermarkData: WatermarkData,
             width: Int,
             height: Int,
-            showBackground: Boolean = false
+            showBackground: Boolean = false,
+            rotationDegrees: Float = 0f,
+            adjustedPosition: WatermarkPosition = watermarkData.watermarkPosition
         ) {
             // 根据图片尺寸计算水印参数
-            val paddingPx = width * WATERMARK_PADDING_RATIO
+            val basePaddingPx = width * WATERMARK_PADDING_RATIO
+            // 分别计算X轴和Y轴的边距
+            val paddingX = 20f  // X轴边距保持基础值
+            val paddingY = if (rotationDegrees != 0f) basePaddingPx * 2f else basePaddingPx  // Y轴在旋转时稍微增加
             val textSizePx = width * TEXT_SIZE_RATIO
             val titleSizePx = width * TITLE_SIZE_RATIO
             val lineSpacingPx = width * LINE_SPACING_RATIO
+
+            Log.d("WatermarkGenerator", "=== 边距计算调试信息 ===")
+            Log.d("WatermarkGenerator", "WATERMARK_PADDING_RATIO: ${WATERMARK_PADDING_RATIO}")
+            Log.d("WatermarkGenerator", "图片宽度: ${width}")
+            Log.d("WatermarkGenerator", "基础边距: ${basePaddingPx}")
+            Log.d("WatermarkGenerator", "是否旋转: ${rotationDegrees != 0f}")
+            Log.d("WatermarkGenerator", "X轴边距: ${paddingX}")
+            Log.d("WatermarkGenerator", "Y轴边距: ${paddingY}")
+            Log.d("WatermarkGenerator", "X轴边距占比: ${paddingX / width * 100}%")
+            Log.d("WatermarkGenerator", "Y轴边距占比: ${paddingY / width * 100}%")
+            Log.d("WatermarkGenerator", "=========================")
 
             // 创建画笔
             val titlePaint = Paint().apply {
@@ -60,17 +76,63 @@ class WatermarkGenerator {
             }
 
             // 计算水印区域大小
-            val watermarkSize = calculateWatermarkSize(watermarkData, titlePaint, textPaint, paddingPx, lineSpacingPx)
+            val watermarkSize = calculateWatermarkSize(watermarkData, titlePaint, textPaint, paddingX, lineSpacingPx)
             
-            // 计算起始位置，根据水印位置设置
-            val startX = when (watermarkData.watermarkPosition) {
-                WatermarkPosition.TOP_LEFT, WatermarkPosition.BOTTOM_LEFT -> paddingPx
-                WatermarkPosition.TOP_RIGHT, WatermarkPosition.BOTTOM_RIGHT -> width - watermarkSize.width - paddingPx
+            // 如果有旋转，需要考虑旋转后的实际占用空间
+            val actualWidth: Float
+            val actualHeight: Float
+            
+            if (rotationDegrees == 90f || rotationDegrees == 270f) {
+                // 90度或270度旋转：宽高交换
+                actualWidth = watermarkSize.height
+                actualHeight = watermarkSize.width
+                Log.d("WatermarkGenerator", "旋转90/270度，宽高交换")
+                Log.d("WatermarkGenerator", "原始尺寸: ${watermarkSize.width}x${watermarkSize.height}")
+                Log.d("WatermarkGenerator", "旋转后尺寸: ${actualWidth}x${actualHeight}")
+            } else {
+                // 0度或180度旋转：尺寸不变
+                actualWidth = watermarkSize.width
+                actualHeight = watermarkSize.height
             }
-            val startY = when (watermarkData.watermarkPosition) {
-                WatermarkPosition.TOP_LEFT, WatermarkPosition.TOP_RIGHT -> paddingPx
-                WatermarkPosition.BOTTOM_LEFT, WatermarkPosition.BOTTOM_RIGHT -> height - watermarkSize.height - paddingPx
+
+            Log.d("WatermarkGenerator", "=== 位置计算调试信息 ===")
+            Log.d("WatermarkGenerator", "图片尺寸: ${width}x${height}")
+            Log.d("WatermarkGenerator", "旋转角度: ${rotationDegrees}°")
+            Log.d("WatermarkGenerator", "原始位置: ${watermarkData.watermarkPosition}")
+            Log.d("WatermarkGenerator", "调整后位置: ${adjustedPosition}")
+            Log.d("WatermarkGenerator", "水印原始尺寸: ${watermarkSize.width}x${watermarkSize.height}")
+            Log.d("WatermarkGenerator", "水印实际占用尺寸: ${actualWidth}x${actualHeight}")
+            Log.d("WatermarkGenerator", "边距: ${paddingX}")
+
+            // 根据传入的调整后位置和实际占用尺寸计算坐标
+            val startX = when (adjustedPosition) {
+                WatermarkPosition.TOP_LEFT, WatermarkPosition.BOTTOM_LEFT -> paddingX
+                WatermarkPosition.TOP_RIGHT, WatermarkPosition.BOTTOM_RIGHT -> width - actualWidth - paddingX
             }
+            val startY = when (adjustedPosition) {
+                WatermarkPosition.TOP_LEFT, WatermarkPosition.TOP_RIGHT -> paddingY
+                WatermarkPosition.BOTTOM_LEFT, WatermarkPosition.BOTTOM_RIGHT -> height - actualHeight - paddingY
+            }
+
+            Log.d("WatermarkGenerator", "计算的起始坐标: (${startX}, ${startY})")
+
+            // 确保水印不会超出边界（使用实际占用尺寸）
+            val safeStartX = startX.coerceIn(paddingX, width - actualWidth - paddingX)
+            val safeStartY = startY.coerceIn(paddingY, height - actualHeight - paddingY)
+
+            Log.d("WatermarkGenerator", "安全坐标: (${safeStartX}, ${safeStartY})")
+            Log.d("WatermarkGenerator", "水印区域: (${safeStartX}, ${safeStartY}) 到 (${safeStartX + actualWidth}, ${safeStartY + actualHeight})")
+            Log.d("WatermarkGenerator", "图片范围: (0, 0) 到 (${width}, ${height})")
+            
+            // 检查是否超出边界（使用实际占用尺寸）
+            val rightEdge = safeStartX + actualWidth
+            val bottomEdge = safeStartY + actualHeight
+            val isWithinBounds = rightEdge <= width && bottomEdge <= height
+            
+            Log.d("WatermarkGenerator", "右边缘: ${rightEdge} (图片宽度: ${width}) ${if (rightEdge <= width) "✅" else "❌超出"}")
+            Log.d("WatermarkGenerator", "底边缘: ${bottomEdge} (图片高度: ${height}) ${if (bottomEdge <= height) "✅" else "❌超出"}")
+            Log.d("WatermarkGenerator", "是否在边界内: ${if (isWithinBounds) "✅ 是" else "❌ 否"}")
+            Log.d("WatermarkGenerator", "=========================")
 
             // 如果需要显示背景
             if (showBackground) {
@@ -79,10 +141,10 @@ class WatermarkGenerator {
                     alpha = 128
                 }
                 canvas.drawRect(
-                    startX,
-                    startY,
-                    startX + watermarkSize.width + paddingPx,
-                    startY + watermarkSize.height + paddingPx,
+                    safeStartX,
+                    safeStartY,
+                    safeStartX + actualWidth + paddingX,
+                    safeStartY + actualHeight + paddingY,
                     bgPaint
                 )
             }
@@ -91,12 +153,13 @@ class WatermarkGenerator {
             drawWatermarkContent(
                 canvas,
                 watermarkData,
-                startX,
-                startY,
+                safeStartX,
+                safeStartY,
                 titlePaint,
                 textPaint,
-                paddingPx,
-                lineSpacingPx
+                paddingX,
+                lineSpacingPx,
+                rotationDegrees
             )
         }
 
@@ -116,24 +179,28 @@ class WatermarkGenerator {
 
             // 标题（如果有）
             if (watermarkData.title.isNotEmpty()) {
-                maxWidth = maxOf(maxWidth, titlePaint.measureText(watermarkData.title))
+                val titleWidth = titlePaint.measureText(watermarkData.title)
+                maxWidth = maxOf(maxWidth, titleWidth)
                 totalHeight += titlePaint.textSize + lineSpacingPx
             }
 
             // 时间
             val timeText = "时间: ${formatTimestamp(watermarkData.timestamp, watermarkData.timeFormat)}"
-            maxWidth = maxOf(maxWidth, textPaint.measureText(timeText))
+            val timeWidth = textPaint.measureText(timeText)
+            maxWidth = maxOf(maxWidth, timeWidth)
             totalHeight += textPaint.textSize + lineSpacingPx
 
             // 位置信息
             if (watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
                 val locationText = "经纬度: ${String.format("%.6f°N,%.6f°E", watermarkData.latitude, watermarkData.longitude)}"
-                maxWidth = maxOf(maxWidth, textPaint.measureText(locationText))
+                val locationWidth = textPaint.measureText(locationText)
+                maxWidth = maxOf(maxWidth, locationWidth)
                 totalHeight += textPaint.textSize + lineSpacingPx
 
                 if (watermarkData.locationName.isNotEmpty()) {
                     val addressText = "地点: ${watermarkData.locationName}"
-                    maxWidth = maxOf(maxWidth, textPaint.measureText(addressText))
+                    val addressWidth = textPaint.measureText(addressText)
+                    maxWidth = maxOf(maxWidth, addressWidth)
                     totalHeight += textPaint.textSize + lineSpacingPx
                 }
             }
@@ -151,13 +218,17 @@ class WatermarkGenerator {
                     }
                 }
                 if (weatherInfo.length > "天气: ".length) {
-                    maxWidth = maxOf(maxWidth, textPaint.measureText(weatherInfo))
+                    val weatherWidth = textPaint.measureText(weatherInfo)
+                    maxWidth = maxOf(maxWidth, weatherWidth)
                     totalHeight += textPaint.textSize + lineSpacingPx
                 }
             }
 
-            // 添加左右边距
+            // 添加左右边距，确保有足够的空间
             maxWidth += paddingPx * 2
+            
+            // 确保最小宽度
+            maxWidth = maxOf(maxWidth, 200f)
 
             return SizeF(maxWidth, totalHeight)
         }
@@ -222,37 +293,77 @@ class WatermarkGenerator {
             titlePaint: Paint,
             textPaint: Paint,
             paddingPx: Float,
-            lineSpacingPx: Float
+            lineSpacingPx: Float,
+            rotationDegrees: Float,
+            adjustedPosition: WatermarkPosition = watermarkData.watermarkPosition
         ) {
-            // 计算总高度
-            var totalHeight = paddingPx * 2
-            if (watermarkData.title.isNotEmpty()) {
-                totalHeight += titlePaint.textSize + lineSpacingPx
-            }
-            totalHeight += textPaint.textSize + lineSpacingPx // 时间
-            if (watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
-                totalHeight += textPaint.textSize + lineSpacingPx // 经纬度
-                if (watermarkData.locationName.isNotEmpty()) {
-                    totalHeight += textPaint.textSize + lineSpacingPx // 地点
+            // 计算水印区域的中心点
+            val watermarkSize = calculateWatermarkSize(watermarkData, titlePaint, textPaint, paddingPx, lineSpacingPx)
+            
+            // 根据旋转角度调整中心点计算
+            val centerX: Float
+            val centerY: Float
+            val adjustedStartX: Float
+            val adjustedStartY: Float
+            
+            when (rotationDegrees.toInt()) {
+                90, 270 -> {
+                    // 90度或270度旋转时，需要调整中心点和起始位置
+                    // 旋转后的实际占用空间是高度变宽度，宽度变高度
+                    val actualWidth = watermarkSize.height
+                    val actualHeight = watermarkSize.width
+                    
+                    // 重新计算旋转后的中心点
+                    centerX = startX + actualWidth / 2
+                    centerY = startY + actualHeight / 2
+                    
+                    // 调整起始位置，使旋转后的文字显示在正确位置
+                    adjustedStartX = startX + (actualWidth - watermarkSize.width) / 2
+                    adjustedStartY = startY + (actualHeight - watermarkSize.height) / 2
+                    
+                    Log.d("WatermarkGenerator", "=== 旋转调整信息 ===")
+                    Log.d("WatermarkGenerator", "原始中心点: (${startX + watermarkSize.width / 2}, ${startY + watermarkSize.height / 2})")
+                    Log.d("WatermarkGenerator", "调整后中心点: (${centerX}, ${centerY})")
+                    Log.d("WatermarkGenerator", "原始起始点: (${startX}, ${startY})")
+                    Log.d("WatermarkGenerator", "调整后起始点: (${adjustedStartX}, ${adjustedStartY})")
+                    Log.d("WatermarkGenerator", "实际占用尺寸: ${actualWidth}x${actualHeight}")
+                    Log.d("WatermarkGenerator", "==================")
                 }
-            }
-            if (watermarkData.showWeatherInfo) {
-                val hasWeatherInfo = watermarkData.weather.isNotEmpty() || watermarkData.temperature.isNotEmpty()
-                if (hasWeatherInfo) {
-                    totalHeight += textPaint.textSize + lineSpacingPx
+                else -> {
+                    // 0度或180度旋转，使用原始计算
+                    centerX = startX + watermarkSize.width / 2
+                    centerY = startY + watermarkSize.height / 2
+                    adjustedStartX = startX
+                    adjustedStartY = startY
                 }
             }
 
-            var currentY = startY + titlePaint.textSize
+            // 保存画布状态并进行整体旋转
+            canvas.save()
+            if (rotationDegrees != 0f) {
+                canvas.rotate(rotationDegrees, centerX, centerY)
+            }
+
+            // 根据位置类型调整currentY的初始值
+            var currentY = when (adjustedPosition) {
+                WatermarkPosition.TOP_LEFT, WatermarkPosition.TOP_RIGHT -> {
+                    // 顶部位置：从调整后的startY开始向下绘制
+                    adjustedStartY + paddingPx + titlePaint.textSize
+                }
+                WatermarkPosition.BOTTOM_LEFT, WatermarkPosition.BOTTOM_RIGHT -> {
+                    // 底部位置：从调整后的startY开始向下绘制
+                    adjustedStartY + paddingPx + titlePaint.textSize
+                }
+            }
 
             // 如果是卡片样式，绘制圆角矩形背景
             if (watermarkData.watermarkStyle == WatermarkStyle.CARD) {
                 val bgPaint = createBackgroundPaint(WatermarkStyle.CARD)!!
                 val rect = RectF(
-                    startX - paddingPx,
-                    startY - paddingPx,
-                    startX + canvas.width * 0.7f + paddingPx,
-                    startY + totalHeight
+                    adjustedStartX - paddingPx,
+                    adjustedStartY - paddingPx,
+                    adjustedStartX + canvas.width * 0.7f + paddingPx,
+                    adjustedStartY + watermarkSize.height
                 )
                 canvas.drawRoundRect(rect, 16f, 16f, bgPaint)
             }
@@ -261,10 +372,10 @@ class WatermarkGenerator {
             if (watermarkData.watermarkStyle == WatermarkStyle.GRADIENT) {
                 val bgPaint = createBackgroundPaint(WatermarkStyle.GRADIENT)!!
                 canvas.drawRect(
-                    startX - paddingPx,
-                    startY - paddingPx,
-                    startX + canvas.width * 0.7f + paddingPx,
-                    startY + totalHeight,
+                    adjustedStartX - paddingPx,
+                    adjustedStartY - paddingPx,
+                    adjustedStartX + canvas.width * 0.7f + paddingPx,
+                    adjustedStartY + watermarkSize.height,
                     bgPaint
                 )
             }
@@ -277,9 +388,9 @@ class WatermarkGenerator {
                         style = Paint.Style.FILL
                         color = Color.WHITE
                     }
-                    canvas.drawText(watermarkData.title, startX + paddingPx, currentY, fillPaint)
+                    canvas.drawText(watermarkData.title, adjustedStartX + paddingPx, currentY, fillPaint)
                 }
-                canvas.drawText(watermarkData.title, startX + paddingPx, currentY, titlePaint)
+                canvas.drawText(watermarkData.title, adjustedStartX + paddingPx, currentY, titlePaint)
                 currentY += titlePaint.textSize + lineSpacingPx
             }
             
@@ -290,9 +401,9 @@ class WatermarkGenerator {
                     style = Paint.Style.FILL
                     color = Color.WHITE
                 }
-                canvas.drawText(timeText, startX + paddingPx, currentY, fillPaint)
+                canvas.drawText(timeText, adjustedStartX + paddingPx, currentY, fillPaint)
             }
-            canvas.drawText(timeText, startX + paddingPx, currentY, textPaint)
+            canvas.drawText(timeText, adjustedStartX + paddingPx, currentY, textPaint)
             currentY += textPaint.textSize + lineSpacingPx
             
             // 绘制位置信息
@@ -303,9 +414,9 @@ class WatermarkGenerator {
                         style = Paint.Style.FILL
                         color = Color.WHITE
                     }
-                    canvas.drawText(locationText, startX + paddingPx, currentY, fillPaint)
+                    canvas.drawText(locationText, adjustedStartX + paddingPx, currentY, fillPaint)
                 }
-                canvas.drawText(locationText, startX + paddingPx, currentY, textPaint)
+                canvas.drawText(locationText, adjustedStartX + paddingPx, currentY, textPaint)
                 currentY += textPaint.textSize + lineSpacingPx
                 
                 if (watermarkData.locationName.isNotEmpty()) {
@@ -315,9 +426,9 @@ class WatermarkGenerator {
                             style = Paint.Style.FILL
                             color = Color.WHITE
                         }
-                        canvas.drawText(addressText, startX + paddingPx, currentY, fillPaint)
+                        canvas.drawText(addressText, adjustedStartX + paddingPx, currentY, fillPaint)
                     }
-                    canvas.drawText(addressText, startX + paddingPx, currentY, textPaint)
+                    canvas.drawText(addressText, adjustedStartX + paddingPx, currentY, textPaint)
                     currentY += textPaint.textSize + lineSpacingPx
                 }
             }
@@ -340,12 +451,15 @@ class WatermarkGenerator {
                             style = Paint.Style.FILL
                             color = Color.WHITE
                         }
-                        canvas.drawText(weatherInfo, startX + paddingPx, currentY, fillPaint)
+                        canvas.drawText(weatherInfo, adjustedStartX + paddingPx, currentY, fillPaint)
                     }
-                    canvas.drawText(weatherInfo, startX + paddingPx, currentY, textPaint)
+                    canvas.drawText(weatherInfo, adjustedStartX + paddingPx, currentY, textPaint)
                     currentY += textPaint.textSize + lineSpacingPx
                 }
             }
+
+            // 恢复画布状态
+            canvas.restore()
         }
     }
     
@@ -357,17 +471,45 @@ class WatermarkGenerator {
         originalBitmap: Bitmap,
         watermarkData: WatermarkData,
         fileName: String,
-        folderName: String
+        folderName: String,
+        rotationDegrees: Float = 0f
     ): Boolean {
         return try {
             val watermarkedBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
             val canvas = Canvas(watermarkedBitmap)
 
+            // 根据旋转角度调整水印位置映射（与CameraScreen.kt保持一致）
+            val adjustedPosition = when (rotationDegrees.toInt()) {
+                0 -> watermarkData.watermarkPosition
+                90 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.TOP_RIGHT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_RIGHT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_LEFT
+                }
+                180 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_RIGHT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_LEFT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_RIGHT
+                }
+                270 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.TOP_LEFT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_RIGHT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.BOTTOM_RIGHT
+                }
+                else -> watermarkData.watermarkPosition
+            }
+
             drawWatermarkToCanvas(
-                canvas,
-                watermarkData,
-                watermarkedBitmap.width,
-                watermarkedBitmap.height
+                canvas = canvas,
+                watermarkData = watermarkData,
+                width = watermarkedBitmap.width,
+                height = watermarkedBitmap.height,
+                showBackground = watermarkData.watermarkStyle != WatermarkStyle.SIMPLE,
+                rotationDegrees = rotationDegrees,
+                adjustedPosition = adjustedPosition
             )
             
             saveBitmapToPictures(context, watermarkedBitmap, fileName, folderName)
@@ -385,17 +527,45 @@ class WatermarkGenerator {
     fun addWatermarkToPhoto(
         originalBitmap: Bitmap,
         watermarkData: WatermarkData,
-        outputFile: File
+        outputFile: File,
+        rotationDegrees: Float = 0f
     ): Boolean {
         return try {
             val watermarkedBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
             val canvas = Canvas(watermarkedBitmap)
             
+            // 根据旋转角度调整水印位置映射（与CameraScreen.kt保持一致）
+            val adjustedPosition = when (rotationDegrees.toInt()) {
+                0 -> watermarkData.watermarkPosition
+                90 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.TOP_RIGHT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_RIGHT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_LEFT
+                }
+                180 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_RIGHT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_LEFT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_RIGHT
+                }
+                270 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.TOP_LEFT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_RIGHT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.BOTTOM_RIGHT
+                }
+                else -> watermarkData.watermarkPosition
+            }
+            
             drawWatermarkToCanvas(
-                canvas,
-                watermarkData,
-                watermarkedBitmap.width,
-                watermarkedBitmap.height
+                canvas = canvas,
+                watermarkData = watermarkData,
+                width = watermarkedBitmap.width,
+                height = watermarkedBitmap.height,
+                showBackground = watermarkData.watermarkStyle != WatermarkStyle.SIMPLE,
+                rotationDegrees = rotationDegrees,
+                adjustedPosition = adjustedPosition
             )
             
             saveBitmapToFile(watermarkedBitmap, outputFile)
@@ -477,7 +647,8 @@ class WatermarkGenerator {
         imageUri: Uri,
         watermarkData: WatermarkData,
         fileName: String,
-        folderName: String
+        folderName: String,
+        rotationDegrees: Float = 0f
     ): Boolean {
         return try {
             // 从URI加载图片
@@ -493,13 +664,39 @@ class WatermarkGenerator {
             val editableBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
             val canvas = Canvas(editableBitmap)
             
+            // 根据旋转角度调整水印位置映射（与CameraScreen.kt保持一致）
+            val adjustedPosition = when (rotationDegrees.toInt()) {
+                0 -> watermarkData.watermarkPosition
+                90 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.TOP_RIGHT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_RIGHT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_LEFT
+                }
+                180 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_RIGHT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_LEFT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_RIGHT
+                }
+                270 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.TOP_LEFT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_RIGHT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.BOTTOM_RIGHT
+                }
+                else -> watermarkData.watermarkPosition
+            }
+            
             // 添加水印
             drawWatermarkToCanvas(
                 canvas = canvas,
                 watermarkData = watermarkData,
                 width = editableBitmap.width,
                 height = editableBitmap.height,
-                showBackground = watermarkData.watermarkStyle != WatermarkStyle.SIMPLE
+                showBackground = watermarkData.watermarkStyle != WatermarkStyle.SIMPLE,
+                rotationDegrees = rotationDegrees,
+                adjustedPosition = adjustedPosition
             )
             
             // 保存到Pictures目录
@@ -522,7 +719,8 @@ class WatermarkGenerator {
     fun addWatermarkToSelectedImage(
         context: Context,
         imageUri: Uri,
-        watermarkData: WatermarkData
+        watermarkData: WatermarkData,
+        rotationDegrees: Float = 0f
     ): Bitmap? {
         return try {
             // 从URI加载图片
@@ -538,13 +736,39 @@ class WatermarkGenerator {
             val editableBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
             val canvas = Canvas(editableBitmap)
             
+            // 根据旋转角度调整水印位置映射（与CameraScreen.kt保持一致）
+            val adjustedPosition = when (rotationDegrees.toInt()) {
+                0 -> watermarkData.watermarkPosition
+                90 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.TOP_RIGHT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_RIGHT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_LEFT
+                }
+                180 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_RIGHT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_LEFT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_RIGHT
+                }
+                270 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.TOP_LEFT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_RIGHT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.BOTTOM_RIGHT
+                }
+                else -> watermarkData.watermarkPosition
+            }
+            
             // 添加水印
             drawWatermarkToCanvas(
                 canvas = canvas,
                 watermarkData = watermarkData,
                 width = editableBitmap.width,
                 height = editableBitmap.height,
-                showBackground = watermarkData.watermarkStyle != WatermarkStyle.SIMPLE
+                showBackground = watermarkData.watermarkStyle != WatermarkStyle.SIMPLE,
+                rotationDegrees = rotationDegrees,
+                adjustedPosition = adjustedPosition
             )
             
             // 清理原始位图
