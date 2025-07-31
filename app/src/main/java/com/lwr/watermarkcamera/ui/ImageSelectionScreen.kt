@@ -54,11 +54,13 @@ data class ImageInfo(
         "yyyy-MM-dd",
         Locale.getDefault()
     ).format(Date()), // 改为年月日格式
-    var showDate: Boolean = true, // 是否在水印中显示日期
-    var showLocation: Boolean = true, // 是否在水印中显示地点
+    var showDate: Boolean = false, // 是否在水印中显示日期（默认关闭）
+    var showLocation: Boolean = false, // 是否在水印中显示地点（默认关闭）
     var watermarkPosition: WatermarkPosition = WatermarkPosition.BOTTOM_RIGHT,
     var hasExifGpsData: Boolean = false, // 是否包含EXIF GPS数据
-    var exifTimestamp: Long = 0 // EXIF中的时间戳
+    var exifTimestamp: Long = 0, // EXIF中的时间戳
+    var imageName: String = "", // 图片名称
+    var showImageName: Boolean = false // 是否显示图片名称
 )
 
 // 水印位置枚举
@@ -81,6 +83,7 @@ fun ImageSelectionScreen(
     exifDataReader: com.lwr.watermarkcamera.utils.ExifDataReader,
     locationService: com.lwr.watermarkcamera.utils.LocationService,
     permissionChecker: com.lwr.watermarkcamera.utils.PermissionChecker,
+    database: com.lwr.watermarkcamera.data.AppDatabase,
     onImageSelected: (Uri) -> Unit,
     onBackPressed: () -> Unit,
     onStartCamera: () -> Unit,
@@ -94,6 +97,18 @@ fun ImageSelectionScreen(
     var processedCount by remember { mutableStateOf(0) }
     var isLoadingExif by remember { mutableStateOf(false) }
     var loadedExifCount by remember { mutableStateOf(0) }
+
+    // 历史记录状态
+    val titleHistory by database.historyRecordDao().getHistoryByType("title")
+        .collectAsState(initial = emptyList())
+    var showTitleHistory by remember { mutableStateOf(false) }
+
+    // 删除历史记录函数
+    fun deleteFromHistory(history: com.lwr.watermarkcamera.data.HistoryRecord) {
+        scope.launch {
+            database.historyRecordDao().deleteHistory(history)
+        }
+    }
 
     // 检查权限状态
     val permissionReport = remember {
@@ -161,18 +176,19 @@ fun ImageSelectionScreen(
 
                             // 更新ImageInfo对象
                             val updatedInfo = imageInfo.copy(
-                                latitude = if (exifData.hasGpsData) String.format(
-                                    "%.6f",
-                                    exifData.latitude
-                                ) else "",
-                                longitude = if (exifData.hasGpsData) String.format(
-                                    "%.6f",
-                                    exifData.longitude
-                                ) else "",
+                                latitude = if (exifData.hasGpsData) exifData.latitude.toString() else "",
+                                longitude = if (exifData.hasGpsData) exifData.longitude.toString() else "",
                                 location = locationName,
                                 date = exifData.formattedDate,
                                 hasExifGpsData = exifData.hasGpsData,
-                                exifTimestamp = exifData.timestamp
+                                exifTimestamp = exifData.timestamp,
+                                // 根据是否有地点信息自动设置开关
+                                showLocation = locationName.isNotBlank(),
+                                // 根据是否有日期信息自动设置开关
+                                showDate = exifData.formattedDate.isNotBlank() && exifData.formattedDate != SimpleDateFormat(
+                                    "yyyy-MM-dd",
+                                    Locale.getDefault()
+                                ).format(Date()) // 如果不是默认日期才开启
                             )
 
                             loadedExifCount++
@@ -180,7 +196,11 @@ fun ImageSelectionScreen(
                         } catch (e: Exception) {
                             Log.e("ImageSelection", "处理图片 ${index + 1} 时出错: ${e.message}")
                             loadedExifCount++
-                            imageInfo // 如果出错，返回原始对象
+                            // 如果出错，返回原始对象但确保开关关闭
+                            imageInfo.copy(
+                                showLocation = false,
+                                showDate = false
+                            )
                         }
                     }
                     selectedImages = updatedImages
@@ -238,9 +258,9 @@ fun ImageSelectionScreen(
                                 return@forEachIndexed
                             }
 
-                            // 验证经纬度格式并保留六位小数
+                            // 验证经纬度格式并保持精度
                             val lat = try {
-                                String.format("%.6f", imageInfo.latitude.toDouble())
+                                java.math.BigDecimal(imageInfo.latitude).toDouble()
                             } catch (e: NumberFormatException) {
                                 withContext(Dispatchers.Main) {
                                     Toast.makeText(
@@ -253,7 +273,7 @@ fun ImageSelectionScreen(
                             }
 
                             val lng = try {
-                                String.format("%.6f", imageInfo.longitude.toDouble())
+                                java.math.BigDecimal(imageInfo.longitude).toDouble()
                             } catch (e: NumberFormatException) {
                                 withContext(Dispatchers.Main) {
                                     Toast.makeText(
@@ -285,6 +305,8 @@ fun ImageSelectionScreen(
                                 timestamp = timestamp,
                                 latitude = lat.toDouble(),
                                 longitude = lng.toDouble(),
+                                latitudeString = imageInfo.latitude, // 保持原始精度
+                                longitudeString = imageInfo.longitude, // 保持原始精度
                                 locationName = imageInfo.location.takeIf { it.isNotBlank() }
                                     ?: "", // 可选字段
                                 weather = "", // 清空天气信息
@@ -297,12 +319,18 @@ fun ImageSelectionScreen(
                             )
 
                             // 生成文件名
+                            val finalImageName = if (imageInfo.showImageName && imageInfo.imageName.isNotBlank()) {
+                                imageInfo.imageName
+                            } else {
+                                ""
+                            }
+                            
                             val fileName = folderManager.generateFileName(
                                 sequenceNumber = sequenceNumber,
                                 timestamp = currentWatermarkData.timestamp,
                                 title = commonTitle,
-                                imageName = "图片${index + 1}",
-                                showImageName = true
+                                imageName = finalImageName,
+                                showImageName = imageInfo.showImageName
                             )
 
                             // 添加水印并保存
@@ -352,6 +380,19 @@ fun ImageSelectionScreen(
                             "成功处理 $processedCount 张图片",
                             Toast.LENGTH_LONG
                         ).show()
+                        
+                        // 保存标题到历史记录
+                        if (commonTitle.isNotBlank()) {
+                            scope.launch {
+                                val historyRecord = com.lwr.watermarkcamera.data.HistoryRecord(
+                                    type = "title",
+                                    content = commonTitle,
+                                    timestamp = System.currentTimeMillis()
+                                )
+                                database.historyRecordDao().insertHistory(historyRecord)
+                            }
+                        }
+                        
                         // 清空已处理的图片
                         selectedImages = emptyList()
                         commonTitle = ""
@@ -578,13 +619,30 @@ fun ImageSelectionScreen(
                         Column(
                             modifier = Modifier.padding(20.dp)
                         ) {
-                            Text(
-                                text = "共用标题",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(bottom = 12.dp),
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "共用标题",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+
+                                IconButton(
+                                    onClick = { showTitleHistory = !showTitleHistory }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Menu,
+                                        contentDescription = "历史记录",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
 
                             OutlinedTextField(
                                 value = commonTitle,
@@ -592,8 +650,91 @@ fun ImageSelectionScreen(
                                 label = { Text("请输入标题") },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
-                                enabled = !isProcessing
+                                enabled = !isProcessing,
+                                placeholder = { Text("例如：工程检查、会议记录") },
+                                isError = commonTitle.isEmpty(),
+                                supportingText = {
+                                    if (commonTitle.isEmpty()) {
+                                        Text("请输入标题", color = MaterialTheme.colorScheme.error)
+                                    } else {
+                                        Text(
+                                            "提示：处理完成后将保存到历史记录",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                trailingIcon = {
+                                    if (commonTitle.isNotEmpty()) {
+                                        IconButton(
+                                            onClick = { commonTitle = "" },
+                                            enabled = !isProcessing
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "清空标题",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
                             )
+
+                            // 标题历史记录
+                            if (showTitleHistory && titleHistory.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                            alpha = 0.3f
+                                        )
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp)
+                                    ) {
+                                        Text(
+                                            text = "历史记录",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+
+                                        titleHistory.forEach { history ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        commonTitle = history.content
+                                                        showTitleHistory = false
+                                                    }
+                                                    .padding(vertical = 4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = history.content,
+                                                    fontSize = 14.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                IconButton(
+                                                    onClick = { deleteFromHistory(history) },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Delete,
+                                                        contentDescription = "删除",
+                                                        tint = MaterialTheme.colorScheme.error,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -844,22 +985,21 @@ private fun ImageConfigCard(
             OutlinedTextField(
                 value = imageInfo.latitude,
                 onValueChange = { newValue ->
-                    // 格式化纬度为六位小数
-                    val formattedValue = try {
+                    // 验证纬度范围
+                    val isValid = try {
                         if (newValue.isNotBlank()) {
                             val double = newValue.toDouble()
-                            if (double >= -90 && double <= 90) {
-                                String.format("%.6f", double)
-                            } else {
-                                newValue // 如果超出范围，保持原值让用户修改
-                            }
+                            double >= -90 && double <= 90
                         } else {
-                            newValue
+                            true
                         }
                     } catch (e: NumberFormatException) {
-                        newValue // 如果格式错误，保持原值让用户修改
+                        true // 允许用户输入过程中的格式错误
                     }
-                    onImageInfoChanged(imageInfo.copy(latitude = formattedValue))
+                    
+                    if (isValid) {
+                        onImageInfoChanged(imageInfo.copy(latitude = newValue))
+                    }
                 },
                 label = { Text("纬度* (-90~90)") },
                 modifier = Modifier.fillMaxWidth(),
@@ -880,22 +1020,21 @@ private fun ImageConfigCard(
             OutlinedTextField(
                 value = imageInfo.longitude,
                 onValueChange = { newValue ->
-                    // 格式化经度为六位小数
-                    val formattedValue = try {
+                    // 验证经度范围
+                    val isValid = try {
                         if (newValue.isNotBlank()) {
                             val double = newValue.toDouble()
-                            if (double >= -180 && double <= 180) {
-                                String.format("%.6f", double)
-                            } else {
-                                newValue // 如果超出范围，保持原值让用户修改
-                            }
+                            double >= -180 && double <= 180
                         } else {
-                            newValue
+                            true
                         }
                     } catch (e: NumberFormatException) {
-                        newValue // 如果格式错误，保持原值让用户修改
+                        true // 允许用户输入过程中的格式错误
                     }
-                    onImageInfoChanged(imageInfo.copy(longitude = formattedValue))
+                    
+                    if (isValid) {
+                        onImageInfoChanged(imageInfo.copy(longitude = newValue))
+                    }
                 },
                 label = { Text("经度* (-180~180)") },
                 modifier = Modifier.fillMaxWidth(),
@@ -1008,6 +1147,52 @@ private fun ImageConfigCard(
                     } catch (e: Exception) {
                         true
                     }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 图片名称显示开关
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "显示图片名称",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "在文件名中包含图片名称",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = imageInfo.showImageName,
+                    onCheckedChange = { newValue ->
+                        onImageInfoChanged(imageInfo.copy(showImageName = newValue))
+                    },
+                    enabled = enabled
+                )
+            }
+
+            // 图片名称输入 (可选)
+            if (imageInfo.showImageName) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = imageInfo.imageName,
+                    onValueChange = { newValue ->
+                        onImageInfoChanged(imageInfo.copy(imageName = newValue))
+                    },
+                    label = { Text("图片名称 (可选)") },
+                    placeholder = { Text("输入图片名称") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    enabled = enabled
                 )
             }
 

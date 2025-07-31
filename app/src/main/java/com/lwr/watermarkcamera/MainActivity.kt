@@ -456,6 +456,7 @@ fun WatermarkCameraApp(
                                 exifDataReader = exifDataReader,
                                 locationService = locationService,
                                 permissionChecker = permissionChecker,
+                                database = database,
                                 onImageSelected = { uri ->
                                     selectedImageUri = uri
                                     currentScreen = Screen.ImagePreview

@@ -194,7 +194,11 @@ class WatermarkGenerator {
 
             // 经纬度信息（根据显示设置）
             if (watermarkData.showCoordinates && watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
-                val locationText = "经纬度: ${String.format("%.6f°N,%.6f°E", watermarkData.latitude, watermarkData.longitude)}"
+                val locationText = if (watermarkData.latitudeString.isNotEmpty() && watermarkData.longitudeString.isNotEmpty()) {
+                    "经纬度: ${watermarkData.latitudeString}°N,${watermarkData.longitudeString}°E"
+                } else {
+                    "经纬度: ${watermarkData.latitude}°N,${watermarkData.longitude}°E"
+                }
                 val locationWidth = textPaint.measureText(locationText)
                 maxWidth = maxOf(maxWidth, locationWidth)
                 totalHeight += textPaint.textSize + lineSpacingPx
@@ -413,7 +417,11 @@ class WatermarkGenerator {
             
             // 绘制经纬度信息（根据显示设置）
             if (watermarkData.showCoordinates && watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
-                val locationText = "经纬度: ${String.format("%.6f°N,%.6f°E", watermarkData.latitude, watermarkData.longitude)}"
+                val locationText = if (watermarkData.latitudeString.isNotEmpty() && watermarkData.longitudeString.isNotEmpty()) {
+                    "经纬度: ${watermarkData.latitudeString}°N,${watermarkData.longitudeString}°E"
+                } else {
+                    "经纬度: ${watermarkData.latitude}°N,${watermarkData.longitude}°E"
+                }
                 if (watermarkData.watermarkStyle == WatermarkStyle.BORDERED) {
                     val fillPaint = Paint(textPaint).apply {
                         style = Paint.Style.FILL

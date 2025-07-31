@@ -789,7 +789,12 @@ fun WatermarkPreview(
         
         // 经纬度信息（根据showCoordinates控制）
         if (watermarkData.showCoordinates && watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
-            contentList.add("经纬度: ${String.format("%.6f°N,%.6f°E", watermarkData.latitude, watermarkData.longitude)}")
+            val locationText = if (watermarkData.latitudeString.isNotEmpty() && watermarkData.longitudeString.isNotEmpty()) {
+                "经纬度: ${watermarkData.latitudeString}°N,${watermarkData.longitudeString}°E"
+            } else {
+                "经纬度: ${watermarkData.latitude}°N,${watermarkData.longitude}°E"
+            }
+            contentList.add(locationText)
         }
         
         // 地点信息（根据showLocation控制）

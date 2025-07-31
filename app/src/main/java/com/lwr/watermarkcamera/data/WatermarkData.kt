@@ -28,6 +28,8 @@ data class WatermarkData(
     val timestamp: Long = System.currentTimeMillis(), // 拍摄时间
     val latitude: Double = 0.0, // 纬度
     val longitude: Double = 0.0, // 经度
+    val latitudeString: String = "", // 纬度字符串（保持原始精度）
+    val longitudeString: String = "", // 经度字符串（保持原始精度）
     val locationName: String = "", // 位置名称
     val weather: String = "", // 天气情况
     val deviceInfo: String = "", // 设备信息
