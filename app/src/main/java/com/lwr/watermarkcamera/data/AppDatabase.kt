@@ -5,9 +5,10 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [ProjectFolder::class], version = 1)
+@Database(entities = [ProjectFolder::class, HistoryRecord::class], version = 2)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun projectFolderDao(): ProjectFolderDao
+    abstract fun historyRecordDao(): HistoryRecordDao
 
     companion object {
         @Volatile
@@ -19,7 +20,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "watermark_camera_db"
-                ).build()
+                )
+                .fallbackToDestructiveMigration() // 简单处理版本升级
+                .build()
                 INSTANCE = instance
                 instance
             }

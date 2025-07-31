@@ -6,9 +6,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,10 +22,14 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import com.lwr.watermarkcamera.data.WatermarkData
 import com.lwr.watermarkcamera.data.WatermarkPosition
 import com.lwr.watermarkcamera.data.WatermarkStyle
 import com.lwr.watermarkcamera.data.TimeFormat
+import com.lwr.watermarkcamera.data.AppDatabase
+import com.lwr.watermarkcamera.data.HistoryRecord
+import kotlinx.coroutines.launch
 
 @Composable
 fun WatermarkSettingsScreen(
@@ -30,8 +37,28 @@ fun WatermarkSettingsScreen(
     onWatermarkDataChange: (WatermarkData) -> Unit,
     onStartCamera: () -> Unit,
     onStartImageSelection: () -> Unit,
-    onBackToFolderSelection: () -> Unit
+    onBackToFolderSelection: () -> Unit,
+    database: AppDatabase
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // 历史记录状态
+    val titleHistory by database.historyRecordDao().getHistoryByType("title")
+        .collectAsState(initial = emptyList())
+    val imageNameHistory by database.historyRecordDao().getHistoryByType("imageName")
+        .collectAsState(initial = emptyList())
+
+    var showTitleHistory by remember { mutableStateOf(false) }
+    var showImageNameHistory by remember { mutableStateOf(false) }
+
+    // 删除历史记录函数
+    fun deleteFromHistory(history: HistoryRecord) {
+        scope.launch {
+            database.historyRecordDao().deleteHistory(history)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -80,12 +107,29 @@ fun WatermarkSettingsScreen(
                     Column(
                         modifier = Modifier.padding(16.dp)
                     ) {
-                        Text(
-                            text = "请输入标题（必填）",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "请输入标题（必填）",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            IconButton(
+                                onClick = { showTitleHistory = !showTitleHistory }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Menu,
+                                    contentDescription = "历史记录",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         OutlinedTextField(
                             value = watermarkData.title,
@@ -98,7 +142,10 @@ fun WatermarkSettingsScreen(
                                 if (watermarkData.title.isEmpty()) {
                                     Text("请输入标题", color = MaterialTheme.colorScheme.error)
                                 } else {
-                                    Text("提示：点击开始拍照后将保持此标题", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        "提示：点击开始拍照后将保持此标题",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             },
                             trailingIcon = {
@@ -115,6 +162,63 @@ fun WatermarkSettingsScreen(
                                 }
                             }
                         )
+
+                        // 标题历史记录
+                        if (showTitleHistory && titleHistory.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                        alpha = 0.3f
+                                    )
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp)
+                                ) {
+                                    Text(
+                                        text = "历史记录",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+
+                                    titleHistory.forEach { history ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    onWatermarkDataChange(watermarkData.copy(title = history.content))
+                                                    showTitleHistory = false
+                                                }
+                                                .padding(vertical = 4.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = history.content,
+                                                fontSize = 14.sp,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            IconButton(
+                                                onClick = { deleteFromHistory(history) },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "删除",
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -135,19 +239,44 @@ fun WatermarkSettingsScreen(
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Medium
                             )
-                            
-                            Switch(
-                                checked = watermarkData.showImageName,
-                                onCheckedChange = { onWatermarkDataChange(watermarkData.copy(showImageName = it)) },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = MaterialTheme.colorScheme.primary,
-                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
-                                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                IconButton(
+                                    onClick = { showImageNameHistory = !showImageNameHistory },
+                                    enabled = watermarkData.showImageName
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Menu,
+                                        contentDescription = "历史记录",
+                                        tint = if (watermarkData.showImageName)
+                                            MaterialTheme.colorScheme.primary
+                                        else
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                }
+
+                                Switch(
+                                    checked = watermarkData.showImageName,
+                                    onCheckedChange = {
+                                        onWatermarkDataChange(
+                                            watermarkData.copy(
+                                                showImageName = it
+                                            )
+                                        )
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                        checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                                        uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                        uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
                                 )
-                            )
+                            }
                         }
-                        
+
                         Spacer(modifier = Modifier.height(12.dp))
 
                         if (watermarkData.showImageName) {
@@ -160,15 +289,27 @@ fun WatermarkSettingsScreen(
                                 isError = watermarkData.imageName.isEmpty(),
                                 supportingText = {
                                     if (watermarkData.imageName.isEmpty()) {
-                                        Text("请输入图片名称", color = MaterialTheme.colorScheme.error)
+                                        Text(
+                                            "请输入图片名称",
+                                            color = MaterialTheme.colorScheme.error
+                                        )
                                     } else {
-                                        Text("保存格式：标题-图片名称-序号", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(
+                                            "保存格式：标题-图片名称",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 },
                                 trailingIcon = {
                                     if (watermarkData.imageName.isNotEmpty()) {
                                         IconButton(
-                                            onClick = { onWatermarkDataChange(watermarkData.copy(imageName = "")) }
+                                            onClick = {
+                                                onWatermarkDataChange(
+                                                    watermarkData.copy(
+                                                        imageName = ""
+                                                    )
+                                                )
+                                            }
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Close,
@@ -179,11 +320,74 @@ fun WatermarkSettingsScreen(
                                     }
                                 }
                             )
+
+                            // 图片名称历史记录
+                            if (showImageNameHistory && imageNameHistory.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                            alpha = 0.3f
+                                        )
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp)
+                                    ) {
+                                        Text(
+                                            text = "历史记录",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+
+                                        imageNameHistory.forEach { history ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        onWatermarkDataChange(
+                                                            watermarkData.copy(
+                                                                imageName = history.content
+                                                            )
+                                                        )
+                                                        showImageNameHistory = false
+                                                    }
+                                                    .padding(vertical = 4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = history.content,
+                                                    fontSize = 14.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                IconButton(
+                                                    onClick = { deleteFromHistory(history) },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Delete,
+                                                        contentDescription = "删除",
+                                                        tint = MaterialTheme.colorScheme.error,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         } else {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                        alpha = 0.3f
+                                    )
                                 )
                             ) {
                                 Column(
@@ -197,21 +401,23 @@ fun WatermarkSettingsScreen(
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "保存格式：标题-序号",
+                                        text = "保存格式：标题",
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
                         }
-                        
+
                         // 预览保存的完整名称
                         if (watermarkData.title.isNotEmpty() && (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(
+                                        alpha = 0.3f
+                                    )
                                 )
                             ) {
                                 Column(
@@ -226,9 +432,9 @@ fun WatermarkSettingsScreen(
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = if (watermarkData.showImageName && watermarkData.imageName.isNotEmpty()) {
-                                            "${watermarkData.title}-${watermarkData.imageName}-1.jpg"
+                                            "${watermarkData.title}-${watermarkData.imageName}.jpg"
                                         } else {
-                                            "${watermarkData.title}-1.jpg"
+                                            "${watermarkData.title}.jpg"
                                         },
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
@@ -244,15 +450,15 @@ fun WatermarkSettingsScreen(
             // 水印样式设置
             item {
                 Card {
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Text(
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
                             text = "水印样式",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(bottom = 12.dp)
+                        )
 
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -263,7 +469,13 @@ fun WatermarkSettingsScreen(
                                 WatermarkStylePreview(
                                     style = style,
                                     selected = watermarkData.watermarkStyle == style,
-                                    onClick = { onWatermarkDataChange(watermarkData.copy(watermarkStyle = style)) }
+                                    onClick = {
+                                        onWatermarkDataChange(
+                                            watermarkData.copy(
+                                                watermarkStyle = style
+                                            )
+                                        )
+                                    }
                                 )
                             }
                         }
@@ -274,15 +486,15 @@ fun WatermarkSettingsScreen(
             // 水印位置设置
             item {
                 Card {
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Text(
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
                             text = "水印位置",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(bottom = 12.dp)
+                        )
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -291,13 +503,25 @@ fun WatermarkSettingsScreen(
                             WatermarkPositionButton(
                                 text = "左上",
                                 selected = watermarkData.watermarkPosition == WatermarkPosition.TOP_LEFT,
-                                onClick = { onWatermarkDataChange(watermarkData.copy(watermarkPosition = WatermarkPosition.TOP_LEFT)) },
+                                onClick = {
+                                    onWatermarkDataChange(
+                                        watermarkData.copy(
+                                            watermarkPosition = WatermarkPosition.TOP_LEFT
+                                        )
+                                    )
+                                },
                                 modifier = Modifier.weight(1f)
                             )
                             WatermarkPositionButton(
                                 text = "右上",
                                 selected = watermarkData.watermarkPosition == WatermarkPosition.TOP_RIGHT,
-                                onClick = { onWatermarkDataChange(watermarkData.copy(watermarkPosition = WatermarkPosition.TOP_RIGHT)) },
+                                onClick = {
+                                    onWatermarkDataChange(
+                                        watermarkData.copy(
+                                            watermarkPosition = WatermarkPosition.TOP_RIGHT
+                                        )
+                                    )
+                                },
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -311,13 +535,25 @@ fun WatermarkSettingsScreen(
                             WatermarkPositionButton(
                                 text = "左下",
                                 selected = watermarkData.watermarkPosition == WatermarkPosition.BOTTOM_LEFT,
-                                onClick = { onWatermarkDataChange(watermarkData.copy(watermarkPosition = WatermarkPosition.BOTTOM_LEFT)) },
+                                onClick = {
+                                    onWatermarkDataChange(
+                                        watermarkData.copy(
+                                            watermarkPosition = WatermarkPosition.BOTTOM_LEFT
+                                        )
+                                    )
+                                },
                                 modifier = Modifier.weight(1f)
                             )
                             WatermarkPositionButton(
                                 text = "右下",
                                 selected = watermarkData.watermarkPosition == WatermarkPosition.BOTTOM_RIGHT,
-                                onClick = { onWatermarkDataChange(watermarkData.copy(watermarkPosition = WatermarkPosition.BOTTOM_RIGHT)) },
+                                onClick = {
+                                    onWatermarkDataChange(
+                                        watermarkData.copy(
+                                            watermarkPosition = WatermarkPosition.BOTTOM_RIGHT
+                                        )
+                                    )
+                                },
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -378,7 +614,42 @@ fun WatermarkSettingsScreen(
                             )
                             Switch(
                                 checked = watermarkData.showTime,
-                                onCheckedChange = { onWatermarkDataChange(watermarkData.copy(showTime = it)) },
+                                onCheckedChange = {
+                                    onWatermarkDataChange(
+                                        watermarkData.copy(
+                                            showTime = it
+                                        )
+                                    )
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "显示日期",
+                                fontSize = 16.sp
+                            )
+                            Switch(
+                                checked = watermarkData.showDate,
+                                onCheckedChange = {
+                                    onWatermarkDataChange(
+                                        watermarkData.copy(
+                                            showDate = it
+                                        )
+                                    )
+                                },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = MaterialTheme.colorScheme.primary,
                                     checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
@@ -401,7 +672,42 @@ fun WatermarkSettingsScreen(
                             )
                             Switch(
                                 checked = watermarkData.showLocation,
-                                onCheckedChange = { onWatermarkDataChange(watermarkData.copy(showLocation = it)) },
+                                onCheckedChange = {
+                                    onWatermarkDataChange(
+                                        watermarkData.copy(
+                                            showLocation = it
+                                        )
+                                    )
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "显示经纬度",
+                                fontSize = 16.sp
+                            )
+                            Switch(
+                                checked = watermarkData.showCoordinates,
+                                onCheckedChange = {
+                                    onWatermarkDataChange(
+                                        watermarkData.copy(
+                                            showCoordinates = it
+                                        )
+                                    )
+                                },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = MaterialTheme.colorScheme.primary,
                                     checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
@@ -424,7 +730,13 @@ fun WatermarkSettingsScreen(
                             )
                             Switch(
                                 checked = watermarkData.showWeatherInfo,
-                                onCheckedChange = { onWatermarkDataChange(watermarkData.copy(showWeatherInfo = it)) },
+                                onCheckedChange = {
+                                    onWatermarkDataChange(
+                                        watermarkData.copy(
+                                            showWeatherInfo = it
+                                        )
+                                    )
+                                },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = MaterialTheme.colorScheme.primary,
                                     checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
@@ -459,11 +771,12 @@ fun WatermarkSettingsScreen(
 
                         Text(
                             text = "• 标题（必填）\n" +
-                                  "• 拍摄时间（可选）\n" +
-                                  "• 地理位置和经纬度（可选）\n" +
-                                  "• 天气信息（可选）\n" +
-                                  "• 图片名称（可选）\n" +
-                                  "• 保存格式：启用图片名称时为 标题-图片名称-序号，禁用时为 标题-序号",
+                                    "• 拍摄时间（可选）\n" +
+                                    "• 地理位置（可选）\n" +
+                                    "• 经纬度（可选）\n" +
+                                    "• 天气信息（可选）\n" +
+                                    "• 图片名称（可选）\n" +
+                                    "• 保存格式：启用图片名称时为 标题-图片名称，禁用时为 标题",
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 20.sp
@@ -478,13 +791,14 @@ fun WatermarkSettingsScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // 开始拍照按钮
             Button(
                 onClick = {
-                    if (watermarkData.title.isNotEmpty() && 
-                        (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())) {
+                    if (watermarkData.title.isNotEmpty() &&
+                        (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())
+                    ) {
                         onStartCamera()
                     }
                 },
@@ -492,8 +806,8 @@ fun WatermarkSettingsScreen(
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary
                 ),
-                enabled = watermarkData.title.isNotEmpty() && 
-                         (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())
+                enabled = watermarkData.title.isNotEmpty() &&
+                        (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())
             ) {
                 Text(
                     text = "开始拍照",
@@ -502,18 +816,16 @@ fun WatermarkSettingsScreen(
                     modifier = Modifier.padding(vertical = 4.dp)
                 )
             }
-            
+
             // 选择图片按钮
             OutlinedButton(
                 onClick = {
-                    if (watermarkData.title.isNotEmpty() && 
-                        (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())) {
-                        onStartImageSelection()
-                    }
+                    onStartImageSelection()
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = watermarkData.title.isNotEmpty() && 
-                         (!watermarkData.showImageName || watermarkData.imageName.isNotEmpty())
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.secondary
+                )
             ) {
                 Text(
                     text = "选择图片添加水印",
@@ -522,6 +834,8 @@ fun WatermarkSettingsScreen(
                     modifier = Modifier.padding(vertical = 4.dp)
                 )
             }
+
+
         }
     }
 }
@@ -629,6 +943,7 @@ private fun WatermarkStylePreview(
                             )
                         }
                     }
+
                     WatermarkStyle.CARD -> {
                         // 卡片样式：半透明背景
                         Box(
@@ -657,6 +972,7 @@ private fun WatermarkStylePreview(
                             }
                         }
                     }
+
                     WatermarkStyle.GRADIENT -> {
                         // 渐变样式：渐变背景
                         Box(
@@ -690,6 +1006,7 @@ private fun WatermarkStylePreview(
                             }
                         }
                     }
+
                     WatermarkStyle.BORDERED -> {
                         // 描边样式：文字描边效果
                         Column(

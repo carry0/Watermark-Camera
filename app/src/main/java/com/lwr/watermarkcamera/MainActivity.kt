@@ -54,6 +54,7 @@ import kotlinx.coroutines.flow.map
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.height
+import com.lwr.watermarkcamera.ui.CameraScreenTest
 
 class MainActivity : ComponentActivity() {
     
@@ -64,6 +65,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var watermarkGenerator: WatermarkGenerator
     private lateinit var sharedPreferences: SharedPreferences
     private lateinit var database: AppDatabase
+    private lateinit var exifDataReader: ExifDataReader
+    private lateinit var permissionChecker: PermissionChecker
     private val gson = Gson()
     
     private val permissionLauncher = registerForActivityResult(
@@ -115,6 +118,8 @@ class MainActivity : ComponentActivity() {
         weatherService = WeatherService()
         deviceInfoUtil = DeviceInfoUtil(this)
         watermarkGenerator = WatermarkGenerator()
+        exifDataReader = ExifDataReader(this)
+        permissionChecker = PermissionChecker(this)
         sharedPreferences = getSharedPreferences("watermark_settings", Context.MODE_PRIVATE)
         database = AppDatabase.getDatabase(this)
         
@@ -134,7 +139,9 @@ class MainActivity : ComponentActivity() {
                     watermarkGenerator = watermarkGenerator,
                     sharedPreferences = sharedPreferences,
                     gson = gson,
-                    database = database
+                    database = database,
+                    exifDataReader = exifDataReader,
+                    permissionChecker = permissionChecker
                 )
             }
         }
@@ -143,7 +150,10 @@ class MainActivity : ComponentActivity() {
     private fun requestPermissions() {
         val permissions = PermissionManager.getMissingPermissions(this)
         if (permissions.isNotEmpty()) {
+            Log.d("MainActivity", "请求权限: ${permissions.joinToString(", ")}")
             permissionLauncher.launch(permissions.toTypedArray())
+        } else {
+            Log.d("MainActivity", "所有权限已授予")
         }
     }
     
@@ -163,7 +173,9 @@ fun WatermarkCameraApp(
     watermarkGenerator: WatermarkGenerator,
     sharedPreferences: SharedPreferences,
     gson: Gson,
-    database: AppDatabase
+    database: AppDatabase,
+    exifDataReader: ExifDataReader,
+    permissionChecker: PermissionChecker
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -291,7 +303,9 @@ fun WatermarkCameraApp(
             timeFormat = data.timeFormat,
             showImageName = data.showImageName,
             showTime = data.showTime,
+            showDate = data.showDate,
             showLocation = data.showLocation,
+            showCoordinates = data.showCoordinates,
             showWeatherInfo = data.showWeatherInfo
         )
         sharedPreferences.edit { putString(folderName, gson.toJson(settings)) }
@@ -310,7 +324,9 @@ fun WatermarkCameraApp(
                 timeFormat = settings.timeFormat,
                 showImageName = settings.showImageName,
                 showTime = settings.showTime,
+                showDate = settings.showDate ?: true, // 默认为true，兼容旧版本
                 showLocation = settings.showLocation,
+                showCoordinates = settings.showCoordinates ?: true, // 默认为true，兼容旧版本
                 showWeatherInfo = settings.showWeatherInfo
             )
         } else {
@@ -425,7 +441,8 @@ fun WatermarkCameraApp(
                             },
                             onBackToFolderSelection = {
                                 handleBackPress()
-                            }
+                            },
+                            database = database
                         )
                     }
                     
@@ -433,6 +450,12 @@ fun WatermarkCameraApp(
                         selectedFolder?.let { folder ->
                             ImageSelectionScreen(
                                 selectedFolder = folder,
+                                watermarkData = watermarkData,
+                                watermarkGenerator = watermarkGenerator,
+                                folderManager = folderManager,
+                                exifDataReader = exifDataReader,
+                                locationService = locationService,
+                                permissionChecker = permissionChecker,
                                 onImageSelected = { uri ->
                                     selectedImageUri = uri
                                     currentScreen = Screen.ImagePreview
@@ -465,6 +488,10 @@ fun WatermarkCameraApp(
                                         }
                                     }
                                     currentScreen = Screen.Camera
+                                },
+                                onProcessingComplete = {
+                                    // 处理完成后可以选择返回到设置页面或保持在当前页面
+                                    Toast.makeText(context, "所有图片处理完成！", Toast.LENGTH_LONG).show()
                                 }
                             )
                         }
@@ -490,9 +517,10 @@ fun WatermarkCameraApp(
                                         } ?: 1
                                         
                                         // 生成文件名：使用标题-图片名称的格式
+                                        val currentTimestamp = System.currentTimeMillis()
                                         val fileName = folderManager.generateFileName(
                                             sequenceNumber = sequenceNumber,
-                                            timestamp = finalWatermarkData.timestamp,
+                                            timestamp = currentTimestamp,
                                             title = finalWatermarkData.title,
                                             imageName = finalWatermarkData.imageName,
                                             showImageName = finalWatermarkData.showImageName
@@ -517,6 +545,29 @@ fun WatermarkCameraApp(
                                         )
                                         
                                         if (success) {
+                                            // 保存历史记录
+                                            scope.launch {
+                                                // 保存标题历史记录
+                                                if (updatedWatermarkData.title.isNotBlank()) {
+                                                    val titleCount = database.historyRecordDao().getHistoryCount("title", updatedWatermarkData.title)
+                                                    if (titleCount == 0) {
+                                                        database.historyRecordDao().insertHistory(
+                                                            com.lwr.watermarkcamera.data.HistoryRecord(type = "title", content = updatedWatermarkData.title)
+                                                        )
+                                                    }
+                                                }
+                                                
+                                                // 保存图片名称历史记录
+                                                if (updatedWatermarkData.showImageName && updatedWatermarkData.imageName.isNotBlank()) {
+                                                    val imageNameCount = database.historyRecordDao().getHistoryCount("imageName", updatedWatermarkData.imageName)
+                                                    if (imageNameCount == 0) {
+                                                        database.historyRecordDao().insertHistory(
+                                                            com.lwr.watermarkcamera.data.HistoryRecord(type = "imageName", content = updatedWatermarkData.imageName)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            
                                             Toast.makeText(context, "图片已保存到相册: $fileName", Toast.LENGTH_SHORT).show()
                                             currentScreen = Screen.ImageSelection
                                         } else {
@@ -534,7 +585,7 @@ fun WatermarkCameraApp(
                     }
                     
                     Screen.Camera -> {
-                        CameraScreen(
+                        CameraScreenTest(
                             watermarkData = watermarkData,
                             onPhotoTaken = { bitmap, tempFile, rotationDegrees ->
                                 scope.launch {
@@ -543,35 +594,39 @@ fun WatermarkCameraApp(
                                         Toast.makeText(context, "请先填写标题", Toast.LENGTH_SHORT).show()
                                         return@launch
                                     }
-                                    
+
                                     if (watermarkData.showImageName && watermarkData.imageName.isEmpty()) {
                                         Toast.makeText(context, "请先填写图片名称", Toast.LENGTH_SHORT).show()
                                         return@launch
                                     }
-                                    
+
                                     // 获取序列号
                                     val sequenceNumber = selectedFolder?.let { folder ->
                                         folderManager.getNextSequenceNumberFromFiles(folder.name)
                                     } ?: 1
-                                    
+
+                                    // 获取当前时间戳
+                                    val currentTimestamp = System.currentTimeMillis()
+
                                     // 生成文件名：使用标题-图片名称的格式
                                     val fileName = folderManager.generateFileName(
                                         sequenceNumber = sequenceNumber,
-                                        timestamp = watermarkData.timestamp,
+                                        timestamp = currentTimestamp,
                                         title = watermarkData.title,
                                         imageName = watermarkData.imageName,
                                         showImageName = watermarkData.showImageName
                                     )
-                                    
+
                                     // 获取文件夹名称（从路径中提取）
                                     val folderName = selectedFolder?.name ?: "default"
-                                    
+
                                     // 更新水印数据
                                     val finalWatermarkData = watermarkData.copy(
+                                        timestamp = currentTimestamp, // 使用当前时间作为拍摄时间
                                         sequenceNumber = sequenceNumber,
-                                        customSequence = "SN-${deviceInfoUtil.formatDate(watermarkData.timestamp)}-${String.format("%03d", sequenceNumber)}"
+                                        customSequence = "SN-${deviceInfoUtil.formatDate(currentTimestamp)}-${String.format("%03d", sequenceNumber)}"
                                     )
-                                    
+
                                     // 添加水印并保存到Pictures目录（用户可见），传递旋转角度
                                     val success = watermarkGenerator.addWatermarkToPhotoAndSaveToPictures(
                                         context,
@@ -581,10 +636,34 @@ fun WatermarkCameraApp(
                                         folderName,
                                         rotationDegrees
                                     )
-                                    
+
                                     if (success) {
                                         // 删除临时文件
                                         tempFile.delete()
+
+                                        // 保存历史记录
+                                        scope.launch {
+                                            // 保存标题历史记录
+                                            if (finalWatermarkData.title.isNotBlank()) {
+                                                val titleCount = database.historyRecordDao().getHistoryCount("title", finalWatermarkData.title)
+                                                if (titleCount == 0) {
+                                                    database.historyRecordDao().insertHistory(
+                                                        com.lwr.watermarkcamera.data.HistoryRecord(type = "title", content = finalWatermarkData.title)
+                                                    )
+                                                }
+                                            }
+
+                                            // 保存图片名称历史记录
+                                            if (finalWatermarkData.showImageName && finalWatermarkData.imageName.isNotBlank()) {
+                                                val imageNameCount = database.historyRecordDao().getHistoryCount("imageName", finalWatermarkData.imageName)
+                                                if (imageNameCount == 0) {
+                                                    database.historyRecordDao().insertHistory(
+                                                        com.lwr.watermarkcamera.data.HistoryRecord(type = "imageName", content = finalWatermarkData.imageName)
+                                                    )
+                                                }
+                                            }
+                                        }
+
                                         Toast.makeText(context, "照片已保存到相册: $fileName", Toast.LENGTH_SHORT).show()
                                         // 不清空标题，保持所有设置不变
                                     } else {
@@ -603,8 +682,8 @@ fun WatermarkCameraApp(
                                 }
                             },
                             onBackToSettings = {
-                                // 返回到设置页面，但保持其他设置不变
-                                handleBackPress()
+                                // 保持在相机页面，不清空标题，保持所有设置不变
+                                // 不调用handleBackPress()，让用户继续拍照
                             },
                             locationService = locationService,
                             weatherService = weatherService
@@ -625,7 +704,9 @@ data class WatermarkSettings(
     val timeFormat: TimeFormat = TimeFormat.DATE_ONLY,
     val showImageName: Boolean = true,
     val showTime: Boolean = true,
+    val showDate: Boolean = true,
     val showLocation: Boolean = true,
+    val showCoordinates: Boolean = true,
     val showWeatherInfo: Boolean = true
 )
 

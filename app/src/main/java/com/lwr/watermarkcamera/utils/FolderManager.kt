@@ -87,11 +87,11 @@ class FolderManager(private val context: Context) {
         showImageName: Boolean = true
     ): String {
         return if (showImageName && imageName.isNotEmpty()) {
-            // 启用图片名称且图片名称不为空：标题-图片名称-序号
-            "${title}-${imageName}-${sequenceNumber}.jpg"
+            // 启用图片名称且图片名称不为空：标题-图片名称
+            "${title}-${imageName}.jpg"
         } else {
-            // 禁用图片名称或图片名称为空：标题-序号
-            "${title}-${sequenceNumber}.jpg"
+            // 禁用图片名称或图片名称为空：直接使用标题
+            "${title}.jpg"
         }
     }
     

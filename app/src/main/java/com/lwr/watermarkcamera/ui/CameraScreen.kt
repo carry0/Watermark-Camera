@@ -57,6 +57,7 @@ import android.view.Surface
 import androidx.compose.foundation.gestures.forEachGesture
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.geometry.CornerRadius
 import com.lwr.watermarkcamera.data.WatermarkPosition
@@ -86,10 +87,20 @@ fun CameraScreen(
     var camera: Camera? by remember { mutableStateOf(null) }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     
+    // 相机控制相关状态
+    var currentZoomRatio by remember { mutableStateOf(1.0f) }
+    var maxZoomRatio by remember { mutableStateOf(1.0f) }
+    var hasUltraWideCamera by remember { mutableStateOf(false) }
+    var isUltraWideLens by remember { mutableStateOf(false) }
+    var currentCameraSelector by remember { mutableStateOf(CameraSelector.DEFAULT_BACK_CAMERA) }
+    var availableCameras by remember { mutableStateOf<List<Pair<CameraSelector, String>>>(listOf()) }
+    var currentCameraIndex by remember { mutableStateOf(0) }
+
     // 预览状态
     var showPreviewDialog by remember { mutableStateOf(false) }
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var previewFile by remember { mutableStateOf<File?>(null) }
+    var photoRotationDegrees by remember { mutableStateOf(0f) }  // 保存拍照时的旋转角度
 
     // 方向监听
     var rotation by remember { mutableStateOf(Surface.ROTATION_0) }
@@ -108,6 +119,125 @@ fun CameraScreen(
         onDispose { orientationListener.disable() }
     }
 
+    // 检测设备是否有广角镜头
+    LaunchedEffect(Unit) {
+        try {
+            val cameraProvider = ProcessCameraProvider.getInstance(context).get()
+            // 获取所有可用相机
+            val cameraInfoList = cameraProvider.availableCameraInfos
+            Log.d("CameraScreen", "检测到 ${cameraInfoList.size} 个相机")
+            
+            // 创建可用的相机选择器列表
+            val cameraSelectors = mutableListOf<Pair<CameraSelector, String>>()
+            
+            // 遍历所有相机并获取它们的ID
+            cameraInfoList.forEachIndexed { index, cameraInfo ->
+                // 获取相机ID
+                val cameraId = cameraInfo.toString()
+                Log.d("CameraScreen", "相机 $index ID: $cameraId")
+                
+                // 尝试确定相机类型
+                val isBackCamera = cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_BACK_CAMERA
+                ).cameraInfo == cameraInfo
+                
+                // 创建相机选择器
+                val selector = if (isBackCamera) {
+                    CameraSelector.DEFAULT_BACK_CAMERA
+                } else {
+                    // 尝试创建一个自定义选择器
+                    try {
+                        CameraSelector.Builder()
+                            .addCameraFilter { cameras ->
+                                cameras.filter { camera ->
+                                    camera.toString() == cameraId
+                                }
+                            }
+                            .build()
+                    } catch (e: Exception) {
+                        Log.e("CameraScreen", "创建相机选择器失败: ${e.message}")
+                        null
+                    }
+                }
+                
+                // 添加到列表
+                if (selector != null) {
+                    val cameraName = if (index == 0) "主摄像头" else "辅助摄像头 $index"
+                    cameraSelectors.add(Pair(selector, cameraName))
+                }
+            }
+            
+            // 确保至少有一个相机
+            if (cameraSelectors.isEmpty()) {
+                cameraSelectors.add(Pair(CameraSelector.DEFAULT_BACK_CAMERA, "默认相机"))
+            }
+            
+            // 更新可用相机列表和广角相机状态
+            availableCameras = cameraSelectors
+            hasUltraWideCamera = cameraSelectors.size > 1
+            Log.d("CameraScreen", "检测到 ${cameraSelectors.size} 个可用相机，hasUltraWideCamera=$hasUltraWideCamera")
+            
+            // 解绑相机
+            cameraProvider.unbindAll()
+        } catch (e: Exception) {
+            Log.e("CameraScreen", "检测广角相机失败", e)
+            e.printStackTrace()
+        }
+    }
+
+    // 相机预览引用
+    var previewView by remember { mutableStateOf<PreviewView?>(null) }
+
+    // 监听相机选择器变化
+    LaunchedEffect(currentCameraSelector) {
+        if (previewBitmap == null && !showPreviewDialog && previewView != null) {
+            // 当相机选择器变化且处于相机预览状态时，重新启动相机
+            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+            cameraProviderFuture.addListener({
+                try {
+                    val cameraProvider = cameraProviderFuture.get()
+                    Log.d("CameraScreen", "重新绑定相机，当前索引: $currentCameraIndex, 是否广角: $isUltraWideLens")
+                    
+                    // 解绑所有用例
+                    cameraProvider.unbindAll()
+                    
+                    val preview = Preview.Builder().build()
+                    preview.setSurfaceProvider(previewView!!.surfaceProvider)
+                    
+                    val newImageCapture = ImageCapture.Builder()
+                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                        .build()
+                    
+                    // 使用当前选择的相机选择器
+                    val selector = currentCameraSelector
+                    Log.d("CameraScreen", "使用相机选择器: $selector")
+                    
+                    val newCamera = cameraProvider.bindToLifecycle(
+                        lifecycleOwner,
+                        selector,
+                        preview,
+                        newImageCapture
+                    )
+                    
+                    // 更新外部变量
+                    imageCapture = newImageCapture
+                    camera = newCamera
+                    
+                    // 监听缩放状态变化
+                    newCamera.cameraInfo.zoomState.observe(lifecycleOwner) { zoomState ->
+                        currentZoomRatio = zoomState.zoomRatio
+                        maxZoomRatio = zoomState.maxZoomRatio
+                        Log.d("CameraScreen", "缩放状态更新: 当前=${currentZoomRatio}, 最大=${maxZoomRatio}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("CameraScreen", "重新绑定相机失败", e)
+                    e.printStackTrace()
+                }
+            }, ContextCompat.getMainExecutor(context))
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         onDispose {
             cameraExecutor.shutdown()
@@ -124,112 +254,136 @@ fun CameraScreen(
             else -> 0f
         }
         onPhotoTaken(bitmap, file, rotationDegrees)
-        // 返回到设置页面重新输入标题
-        onBackToSettings()
+        // 继续留在相机页面，不清空标题，保持所有设置不变
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 相机预览
-        var scale by remember { mutableStateOf(1f) }
-        AndroidView(
-            factory = { ctx ->
-                PreviewView(ctx).apply {
-                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                }
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, _, zoom, _ ->
-                        camera?.let { cam ->
-                            val currentZoom = cam.cameraInfo.zoomState.value?.zoomRatio ?: 1f
-                            val newZoom = (currentZoom * zoom).coerceIn(1f, cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 8f)
-                            cam.cameraControl.setZoomRatio(newZoom)
-                        }
+        // 相机预览或预览图片 - 根据状态切换显示
+        if (previewBitmap != null && !showPreviewDialog) {
+            // 显示预览图片
+            Image(
+                bitmap = previewBitmap!!.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit
+            )
+        } else if (!showPreviewDialog) {
+            // 显示相机预览
+            AndroidView(
+                factory = { ctx ->
+                    PreviewView(ctx).apply {
+                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                     }
                 },
-            update = { previewView ->
-                startCamera(
-                    context,
-                    previewView,
-                    lifecycleOwner,
-                    cameraExecutor
-                ) { capture, cam ->
-                    imageCapture = capture
-                    camera = cam
-                }
-            }
-        )
-
-        // 水印预览 - 显示在相机预览上
-        val rotationDegrees = when(rotation) {
-            Surface.ROTATION_0 -> 0f
-            Surface.ROTATION_90 -> 90f
-            Surface.ROTATION_180 -> 180f
-            Surface.ROTATION_270 -> 270f
-            else -> 0f
-        }
-        
-        // 根据旋转角度调整水印位置
-        val adjustedPosition = when (rotation) {
-            Surface.ROTATION_0 -> watermarkData.watermarkPosition
-            Surface.ROTATION_90 -> when (watermarkData.watermarkPosition) {
-                WatermarkPosition.TOP_LEFT -> WatermarkPosition.TOP_RIGHT
-                WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_RIGHT
-                WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.BOTTOM_LEFT
-                WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_LEFT
-            }
-            Surface.ROTATION_180 -> when (watermarkData.watermarkPosition) {
-                WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_RIGHT
-                WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_LEFT
-                WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_LEFT
-                WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_RIGHT
-            }
-            Surface.ROTATION_270 -> when (watermarkData.watermarkPosition) {
-                WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_LEFT
-                WatermarkPosition.TOP_RIGHT -> WatermarkPosition.TOP_LEFT
-                WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_RIGHT
-                WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.BOTTOM_RIGHT
-            }
-            else -> watermarkData.watermarkPosition
-        }
-        
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = when (adjustedPosition) {
-                WatermarkPosition.TOP_LEFT -> Alignment.TopStart
-                WatermarkPosition.TOP_RIGHT -> Alignment.TopEnd
-                WatermarkPosition.BOTTOM_LEFT -> Alignment.BottomStart
-                WatermarkPosition.BOTTOM_RIGHT -> Alignment.BottomEnd
-            }
-        ) {
-            WatermarkPreview(
-                watermarkData = watermarkData,
                 modifier = Modifier
-                    .fillMaxWidth(0.6f)  // 减少宽度比例，避免超出屏幕
-                    .padding(
-                        start = when (adjustedPosition) {
-                            WatermarkPosition.TOP_LEFT, WatermarkPosition.BOTTOM_LEFT -> 16.dp
-                            else -> 8.dp
-                        },
-                        end = when (adjustedPosition) {
-                            WatermarkPosition.TOP_RIGHT, WatermarkPosition.BOTTOM_RIGHT -> 16.dp
-                            else -> 8.dp
-                        },
-                        top = when (adjustedPosition) {
-                            WatermarkPosition.TOP_LEFT, WatermarkPosition.TOP_RIGHT -> 80.dp  // 避免被顶部工具栏遮挡
-                            else -> 8.dp
-                        },
-                        bottom = when (adjustedPosition) {
-                            WatermarkPosition.BOTTOM_LEFT, WatermarkPosition.BOTTOM_RIGHT -> 140.dp  // 避免被底部按钮遮挡
-                            else -> 8.dp
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, _, zoom, _ ->
+                            camera?.let { cam ->
+                                val currentZoom = cam.cameraInfo.zoomState.value?.zoomRatio ?: 1f
+                                val newZoom = (currentZoom * zoom).coerceIn(1f, cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 8f)
+                                cam.cameraControl.setZoomRatio(newZoom)
+                            }
                         }
-                    )
-                    .graphicsLayer { rotationZ = rotationDegrees }
+                    },
+                update = { view ->
+                    // 保存PreviewView引用
+                    previewView = view
+                    
+                    // 初始相机设置会在LaunchedEffect中处理
+                    if (camera == null) {
+                        startCamera(
+                            context,
+                            view,
+                            lifecycleOwner,
+                            cameraExecutor,
+                            currentCameraSelector
+                        ) { capture, cam ->
+                            imageCapture = capture
+                            camera = cam
+                            
+                            // 监听缩放状态变化
+                            cam.cameraInfo.zoomState.observe(lifecycleOwner) { zoomState ->
+                                currentZoomRatio = zoomState.zoomRatio
+                                maxZoomRatio = zoomState.maxZoomRatio
+                            }
+                        }
+                    }
+                }
             )
         }
 
-        // 顶部工具栏
+        // 水印预览 - 只在相机预览时显示
+        if (previewBitmap == null && !showPreviewDialog) {
+            val rotationDegrees = when(rotation) {
+                Surface.ROTATION_0 -> 0f
+                Surface.ROTATION_90 -> 90f
+                Surface.ROTATION_180 -> 180f
+                Surface.ROTATION_270 -> 270f
+                else -> 0f
+            }
+            
+            // 根据旋转角度调整水印位置
+            val adjustedPosition = when (rotation) {
+                Surface.ROTATION_0 -> watermarkData.watermarkPosition
+                Surface.ROTATION_90 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.TOP_RIGHT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_RIGHT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_LEFT
+                }
+                Surface.ROTATION_180 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_RIGHT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_LEFT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.TOP_RIGHT
+                }
+                Surface.ROTATION_270 -> when (watermarkData.watermarkPosition) {
+                    WatermarkPosition.TOP_LEFT -> WatermarkPosition.BOTTOM_LEFT
+                    WatermarkPosition.TOP_RIGHT -> WatermarkPosition.TOP_LEFT
+                    WatermarkPosition.BOTTOM_RIGHT -> WatermarkPosition.TOP_RIGHT
+                    WatermarkPosition.BOTTOM_LEFT -> WatermarkPosition.BOTTOM_RIGHT
+                }
+                else -> watermarkData.watermarkPosition
+            }
+            
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = when (adjustedPosition) {
+                    WatermarkPosition.TOP_LEFT -> Alignment.TopStart
+                    WatermarkPosition.TOP_RIGHT -> Alignment.TopEnd
+                    WatermarkPosition.BOTTOM_LEFT -> Alignment.BottomStart
+                    WatermarkPosition.BOTTOM_RIGHT -> Alignment.BottomEnd
+                }
+            ) {
+                WatermarkPreview(
+                    watermarkData = watermarkData,
+                    modifier = Modifier
+                        .fillMaxWidth(0.6f)  // 减少宽度比例，避免超出屏幕
+                        .padding(
+                            start = when (adjustedPosition) {
+                                WatermarkPosition.TOP_LEFT, WatermarkPosition.BOTTOM_LEFT -> 16.dp
+                                else -> 8.dp
+                            },
+                            end = when (adjustedPosition) {
+                                WatermarkPosition.TOP_RIGHT, WatermarkPosition.BOTTOM_RIGHT -> 16.dp
+                                else -> 8.dp
+                            },
+                            top = when (adjustedPosition) {
+                                WatermarkPosition.TOP_LEFT, WatermarkPosition.TOP_RIGHT -> 80.dp  // 避免被顶部工具栏遮挡
+                                else -> 8.dp
+                            },
+                            bottom = when (adjustedPosition) {
+                                WatermarkPosition.BOTTOM_LEFT, WatermarkPosition.BOTTOM_RIGHT -> 140.dp  // 避免被底部按钮遮挡
+                                else -> 8.dp
+                            }
+                        )
+                        .graphicsLayer { rotationZ = rotationDegrees }
+                )
+            }
+        }
+
+        // 顶部工具栏 - 始终显示
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -237,6 +391,7 @@ fun CameraScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // 返回按钮
             IconButton(
                 onClick = onBackPressed,
                 modifier = Modifier
@@ -251,183 +406,254 @@ fun CameraScreen(
                 )
             }
 
-            // 刷新按钮
-            IconButton(
-                onClick = {
-                    if (!isLoading) {
-                        isLoading = true
-                        locationService.startLocationUpdates { location ->
-                            scope.launch {
-                                try {
-                                    val locationName = locationService.getAddressFromLocation(
-                                        location.latitude,
-                                        location.longitude
-                                    )
-                                    val weatherInfo = weatherService.getWeatherInfo(
-                                        location.latitude,
-                                        location.longitude
-                                    )
-                                    
-                                    onWatermarkDataChange(watermarkData.copy(
-                                        latitude = location.latitude,
-                                        longitude = location.longitude,
-                                        locationName = locationName,
-                                        weather = weatherInfo.weather,
-                                        temperature = weatherInfo.temperature,
-                                        altitude = location.altitude.toString(),
-                                        direction = locationService.getDirection(location.bearing)
-                                    ))
-                                } finally {
-                                    isLoading = false
-                                    locationService.stopLocationUpdates()
+            // 中间部分 - 显示当前缩放倍数（仅在相机预览时显示）
+            if (previewBitmap == null && !showPreviewDialog) {
+                Text(
+                    text = "${currentZoomRatio.roundToInt()}x",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            } else if (previewBitmap != null && !showPreviewDialog) {
+                // 预览图片时显示标题
+                Text(
+                    text = "预览照片",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            } else {
+                // 预览对话框时显示占位符
+                Box(modifier = Modifier.size(48.dp))
+            }
+
+            // 右侧按钮 - 根据状态显示不同的按钮
+            if (previewBitmap == null && !showPreviewDialog) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 广角切换按钮 - 仅在设备支持广角镜头时显示
+                    if (hasUltraWideCamera) {
+                        Button(
+                            onClick = {
+                                // 切换到下一个可用相机
+                                if (availableCameras.isNotEmpty()) {
+                                    currentCameraIndex = (currentCameraIndex + 1) % availableCameras.size
+                                    isUltraWideLens = currentCameraIndex != 0
+                                    currentCameraSelector = availableCameras[currentCameraIndex].first
+                                    Log.d("CameraScreen", "切换到相机 ${availableCameras[currentCameraIndex].second}, isUltraWideLens: $isUltraWideLens")
                                 }
-                            }
+                            },
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color.Black.copy(alpha = 0.5f)),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.Transparent
+                            )
+                        ) {
+                            Text(
+                                text = if (availableCameras.isNotEmpty()) {
+                                    val nextIndex = (currentCameraIndex + 1) % availableCameras.size
+                                    "切换到${availableCameras[nextIndex].second}"
+                                } else {
+                                    "切换相机"
+                                },
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
-                },
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.5f))
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "刷新位置和天气",
-                        tint = Color.White
-                    )
+                    
+                    // 刷新位置和天气按钮
+                    IconButton(
+                        onClick = {
+                            if (!isLoading) {
+                                isLoading = true
+                                locationService.startLocationUpdates { location ->
+                                    scope.launch {
+                                        try {
+                                            val locationName = locationService.getAddressFromLocation(
+                                                location.latitude,
+                                                location.longitude
+                                            )
+                                            val weatherInfo = weatherService.getWeatherInfo(
+                                                location.latitude,
+                                                location.longitude
+                                            )
+                                            
+                                            onWatermarkDataChange(watermarkData.copy(
+                                                latitude = location.latitude,
+                                                longitude = location.longitude,
+                                                locationName = locationName,
+                                                weather = weatherInfo.weather,
+                                                temperature = weatherInfo.temperature,
+                                                altitude = location.altitude.toString(),
+                                                direction = locationService.getDirection(location.bearing)
+                                            ))
+                                        } finally {
+                                            isLoading = false
+                                            locationService.stopLocationUpdates()
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f))
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "刷新位置和天气",
+                                tint = Color.White
+                            )
+                        }
+                    }
                 }
+            } else {
+                // 预览对话框时显示占位符
+                Box(modifier = Modifier.size(48.dp))
             }
         }
 
-        // 底部拍照按钮
+        // 底部按钮区域 - 根据状态显示不同按钮
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(bottom = 32.dp),
             contentAlignment = Alignment.BottomCenter
         ) {
-            FloatingActionButton(
-                onClick = {
-                    takePhoto(
-                        imageCapture = imageCapture,
-                        outputDirectory = getOutputDirectory(context),
-                        executor = cameraExecutor,
-                        rotationDegrees = rotationDegrees
-                    ) { bitmap, file ->
-                        previewBitmap = bitmap
-                        previewFile = file
-                        showPreviewDialog = true
-                    }
-                },
-                modifier = Modifier.size(80.dp),
-                containerColor = MaterialTheme.colorScheme.primary
-            ) {
-                Text(
-                    text = "拍照",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        // 预览对话框
-        if (showPreviewDialog && previewBitmap != null && previewFile != null) {
-            Dialog(
-                onDismissRequest = { 
-                    showPreviewDialog = false
-                    previewBitmap = null
-                    previewFile?.delete()
-                    previewFile = null
-                }
-            ) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    shape = RoundedCornerShape(16.dp)
+            if (previewBitmap != null && !showPreviewDialog) {
+                // 预览图片时显示重拍和保存按钮
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    // 重拍按钮
+                    Button(
+                        onClick = {
+                            previewBitmap = null
+                            previewFile?.delete()
+                            previewFile = null
+                            photoRotationDegrees = 0f  // 重置旋转角度
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.Red
+                        ),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Text(
-                            text = "预览照片",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
-                        
-                        Image(
-                            bitmap = previewBitmap!!.asImageBitmap(),
-                            contentDescription = null,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(previewBitmap!!.width.toFloat() / previewBitmap!!.height)
-                        )
-                        
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Button(
-                                onClick = {
-                                    showPreviewDialog = false
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "重拍",
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "重拍",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    
+                    // 保存按钮
+                    Button(
+                        onClick = {
+                            previewBitmap?.let { bitmap ->
+                                previewFile?.let { file ->
+                                    handlePhotoTaken(bitmap, file)
+                                    // 重置预览状态，准备继续拍照
                                     previewBitmap = null
-                                    previewFile?.delete()
                                     previewFile = null
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color.Red
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "取消",
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("重拍")
+                                    photoRotationDegrees = 0f  // 重置旋转角度
+                                }
                             }
-                            
-                            Button(
-                                onClick = {
-                                    previewBitmap?.let { bitmap ->
-                                        previewFile?.let { file ->
-                                            handlePhotoTaken(bitmap, file)
-                                            // 重置预览状态，准备继续拍照
-                                            showPreviewDialog = false
-                                            previewBitmap = null
-                                            previewFile = null
-                                        }
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color.Green
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "确认",
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("保存")
-                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.Green
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "保存",
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "保存",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }
+            } else if (!showPreviewDialog) {
+                // 相机预览时显示拍照按钮
+                FloatingActionButton(
+                    onClick = {
+                        Log.d("CameraScreen","rotation : $rotation" )
+                        // 保存拍照时的旋转角度
+                        photoRotationDegrees = when(rotation) {
+                            Surface.ROTATION_0 -> 0f
+                            Surface.ROTATION_90 -> 90f
+                            Surface.ROTATION_180 -> 180f
+                            Surface.ROTATION_270 -> 270f
+                            else -> 0f
+                        }
+                        
+                        takePhoto(
+                            imageCapture = imageCapture,
+                            outputDirectory = getOutputDirectory(context),
+                            executor = cameraExecutor,
+                            rotationDegrees = photoRotationDegrees  // 使用保存的旋转角度
+                        ) { bitmap, file ->
+                            previewBitmap = bitmap
+                            previewFile = file
+                            // 直接显示预览图片，不需要showPreviewDialog
+                        }
+                    },
+                    modifier = Modifier.size(80.dp),
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Text(
+                        text = "拍照",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
+
+        // 移除原来的预览对话框，预览功能已集成到主界面中
+        // 保留showPreviewDialog状态用于其他逻辑控制
     }
 }
 
@@ -436,6 +662,7 @@ private fun startCamera(
     previewView: PreviewView,
     lifecycleOwner: LifecycleOwner,
     cameraExecutor: ExecutorService,
+    cameraSelector: CameraSelector,
     onCameraReady: (ImageCapture, Camera) -> Unit
 ) {
     val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
@@ -454,7 +681,7 @@ private fun startCamera(
             cameraProvider.unbindAll()
             val camera = cameraProvider.bindToLifecycle(
                 lifecycleOwner,
-                CameraSelector.DEFAULT_BACK_CAMERA,
+                cameraSelector,
                 preview,
                 imageCapture
             )
@@ -471,8 +698,7 @@ private fun rotateBitmapIfRequired(file: File, bitmap: Bitmap, rotationDegrees: 
     val orientation =
         exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
     
-    // 只使用EXIF方向进行旋转，不叠加屏幕旋转
-    // 屏幕旋转只影响水印位置，不影响最终图片方向
+    // 计算需要旋转的角度
     val exifRotation = when (orientation) {
         ExifInterface.ORIENTATION_ROTATE_90 -> 90f
         ExifInterface.ORIENTATION_ROTATE_180 -> 180f
@@ -480,13 +706,16 @@ private fun rotateBitmapIfRequired(file: File, bitmap: Bitmap, rotationDegrees: 
         else -> 0f
     }
     
+    // 结合EXIF方向和屏幕旋转角度
+    val totalRotation = (exifRotation + rotationDegrees) % 360f
+    
     // 如果不需要旋转，直接返回原图
-    if (exifRotation == 0f) {
+    if (totalRotation == 0f) {
         return bitmap
     }
     
     val matrix = Matrix()
-    matrix.postRotate(exifRotation)
+    matrix.postRotate(totalRotation)
     
     return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
 }
@@ -554,15 +783,18 @@ fun WatermarkPreview(
             contentList.add(watermarkData.title)
         }
         
-        if (watermarkData.showTime) {
+        if (watermarkData.showTime && watermarkData.showDate) {
             contentList.add("时间: ${formatTimestamp(watermarkData.timestamp, watermarkData.timeFormat)}")
         }
         
-        if (watermarkData.showLocation && watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
+        // 经纬度信息（根据showCoordinates控制）
+        if (watermarkData.showCoordinates && watermarkData.latitude != 0.0 && watermarkData.longitude != 0.0) {
             contentList.add("经纬度: ${String.format("%.6f°N,%.6f°E", watermarkData.latitude, watermarkData.longitude)}")
-            if (watermarkData.locationName.isNotEmpty()) {
-                contentList.add("地点: ${watermarkData.locationName}")
-            }
+        }
+        
+        // 地点信息（根据showLocation控制）
+        if (watermarkData.showLocation && watermarkData.locationName.isNotEmpty()) {
+            contentList.add("地点: ${watermarkData.locationName}")
         }
         
         if (watermarkData.showWeatherInfo) {

@@ -462,7 +462,7 @@ fun ImagePreviewScreen(
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "保存格式：标题-序号",
+                                    text = "保存格式：标题",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -660,9 +660,9 @@ fun ImagePreviewScreen(
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = if (watermarkData.showImageName && watermarkData.imageName.isNotEmpty()) {
-                                        "${watermarkData.title}-${watermarkData.imageName}-1.jpg"
+                                        "${watermarkData.title}-${watermarkData.imageName}.jpg"
                                     } else {
-                                        "${watermarkData.title}-1.jpg"
+                                        "${watermarkData.title}.jpg"
                                     },
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
