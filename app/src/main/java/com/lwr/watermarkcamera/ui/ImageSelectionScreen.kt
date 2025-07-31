@@ -43,6 +43,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.util.Log
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Menu
 
 // 图片信息数据类
 data class ImageInfo(
